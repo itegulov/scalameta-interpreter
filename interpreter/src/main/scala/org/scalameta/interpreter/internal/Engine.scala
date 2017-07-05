@@ -16,6 +16,21 @@ object Engine {
     case block: Block     => evalBlock(block, env)
     case name: Term.Name  => evalName(name, env)
     case ifTerm: Term.If  => evalIf(ifTerm, env)
+    case apply: Term.Apply => evalApply(apply, env)
+  }
+
+  def evalApply(apply: Term.Apply, env: Env): (InterpreterRef, Env) = {
+    val (funRef, env1) = eval(apply.fun, env)
+    var resEnv = env1
+    val argRefs = for (arg <- apply.args) yield {
+      val (argRef, newEnv) = eval(arg, resEnv)
+      resEnv = newEnv
+      argRef
+    }
+    Try(funRef.asInstanceOf[InterpreterFunctionRef]) match {
+      case Success(fun) => fun.apply(argRefs, resEnv)
+      case Failure(_) => sys.error(s"Can not apply non-function value $funRef to arguments")
+    }
   }
 
   def evalIf(ifTerm: Term.If, env: Env): (InterpreterRef, Env) = {
