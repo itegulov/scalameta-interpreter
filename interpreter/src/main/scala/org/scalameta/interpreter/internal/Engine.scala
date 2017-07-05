@@ -1,9 +1,10 @@
 package org.scalameta.interpreter.internal
 
-import org.scalameta.interpreter.internal.environment.{Env, InterpreterRef}
+import org.scalameta.interpreter.internal.environment.{Env, InterpreterPrimitive, InterpreterRef}
 
 import scala.meta.Term.Block
 import scala.meta._
+import scala.util.{Failure, Success, Try}
 
 object Engine {
   def eval(tree: Tree, env: Env): (InterpreterRef, Env) = tree match {
@@ -11,6 +12,28 @@ object Engine {
     case definition: Defn => evalLocalDef(definition, env)
     case block: Block     => evalBlock(block, env)
     case name: Term.Name  => evalName(name, env)
+    case ifTerm: Term.If  => evalIf(ifTerm, env)
+  }
+
+  def evalIf(ifTerm: Term.If, env: Env): (InterpreterRef, Env) = {
+    val (condRef, env1) = eval(ifTerm.cond, env)
+    val condEvaluation = env1.heap.get(condRef) match {
+      case Some(result) =>
+        Try(result.asInstanceOf[InterpreterPrimitive]) match {
+          case Success(primitive) =>
+            Try(primitive.value.asInstanceOf[Boolean]) match {
+              case Success(value) => value
+              case Failure(_)     => sys.error("`If`'s conditions should have type `Boolean`")
+            }
+          case Failure(_) => sys.error("`If`'s conditions should be primitive") // TODO: is it?
+        }
+      case None => sys.error("Illegal state")
+    }
+    if (condEvaluation) {
+      eval(ifTerm.thenp, env1)
+    } else {
+      eval(ifTerm.elsep, env1)
+    }
   }
 
   def evalName(name: Term.Name, env: Env): (InterpreterRef, Env) =
