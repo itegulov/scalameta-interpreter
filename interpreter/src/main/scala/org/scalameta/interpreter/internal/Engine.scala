@@ -8,7 +8,10 @@ import scala.meta._
 import scala.util.{Failure, Success, Try}
 
 object Engine {
-  val logger = Logger(Engine.getClass)
+  private val logger = Logger[Engine.type]
+
+  def eval(tree: Tree): (InterpreterRef, Env) =
+    eval(tree, Env(List(Map.empty), Map.empty))
 
   def eval(tree: Tree, env: Env): (InterpreterRef, Env) = tree match {
     case literal: Lit     => evalLiteral(literal, env)
