@@ -1,6 +1,6 @@
 package org.scalameta.interpreter.internal
 
-import org.scalameta.interpreter.internal.environment.{Env, InterpreterPrimitive, InterpreterRef}
+import org.scalameta.interpreter.internal.environment.{Env, InterpreterFunctionRef, InterpreterPrimitive, InterpreterRef}
 
 import scala.meta.Term.Block
 import scala.meta._
@@ -107,7 +107,8 @@ object Engine {
         }
         InterpreterRef.wrap((), resEnv, t"Unit")
       case Defn.Def(mods, name, tparams, paramss, tpe, body) =>
-        ???
+        val funRef = InterpreterFunctionRef(paramss, tparams, body, env)
+        (funRef, env.extend(name.value, funRef))
       case Defn.Trait(mods, name, tparams, ctor, templ) =>
         ???
       case Defn.Class(mods, name, tparams, ctor, templ) =>
