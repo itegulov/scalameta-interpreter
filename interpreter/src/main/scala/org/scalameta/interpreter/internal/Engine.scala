@@ -1,12 +1,15 @@
 package org.scalameta.interpreter.internal
 
-import org.scalameta.interpreter.internal.environment.{Env, InterpreterFunctionRef, InterpreterPrimitive, InterpreterRef}
+import org.scalameta.interpreter.internal.environment._
+import com.typesafe.scalalogging.Logger
 
 import scala.meta.Term.Block
 import scala.meta._
 import scala.util.{Failure, Success, Try}
 
 object Engine {
+  val logger = Logger(Engine.getClass)
+
   def eval(tree: Tree, env: Env): (InterpreterRef, Env) = tree match {
     case literal: Lit     => evalLiteral(literal, env)
     case definition: Defn => evalLocalDef(definition, env)
@@ -114,10 +117,11 @@ object Engine {
       case Defn.Class(mods, name, tparams, ctor, templ) =>
         ???
       case Defn.Macro(mods, name, tparams, paramss, decltpe, body) =>
-        ???
+        sys.error("Macroses are not supported")
       case Defn.Object(mods, name, templ) =>
         ???
       case Defn.Type(mods, name, tparams, body) =>
-        ???
+        logger.info("Ignoring type alias definition")
+        InterpreterRef.wrap((), env, t"Unit")
     }
 }
