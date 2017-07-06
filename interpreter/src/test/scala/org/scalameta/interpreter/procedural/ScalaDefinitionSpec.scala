@@ -19,15 +19,41 @@ class ScalaDefinitionSpec extends ScalametaInterpreterSpec {
     (ref, env)
   }
 
-  it should "handle simple val definitions" in {
-    checkCode(q"val x = 7", InterpreterPrimitive(()), Seq(("x", InterpreterPrimitive(7))))
+  implicit def intToPrimitive(int: Int): InterpreterPrimitive = InterpreterPrimitive(int)
+
+  it should "handle simple val initialization" in {
+    checkCode(q"val x = 7", InterpreterPrimitive(()), Seq(("x", 7)))
   }
 
-  it should "handle simple var definitions" in {
-    checkCode(q"var x = 7", InterpreterPrimitive(()), Seq(("x", InterpreterPrimitive(7))))
+  it should "handle simple var initialization" in {
+    checkCode(q"var x = 7", InterpreterPrimitive(()), Seq(("x", 7)))
   }
 
-  it should "handle var definitions without body" in {
+  it should "handle val-val initialization" in {
+    checkCode(q"val x = 7; val y = x; y", 7, Seq(("x", 7), ("y", 7)))
+  }
+
+  it should "handle val-var initialization" in {
+    checkCode(q"val x = 7; var y = x; y", 7, Seq(("x", 7), ("y", 7)))
+  }
+
+  it should "handle var-val initialization" in {
+    checkCode(q"var x = 7; val y = x; y", 7, Seq(("x", 7), ("y", 7)))
+  }
+
+  it should "handle var-var initialization" in {
+    checkCode(q"var x = 7; var y = x; y", 7, Seq(("x", 7), ("y", 7)))
+  }
+
+  it should "handle mutable var" in {
+    checkCode(q"var x = 1; x = 7; x", 7, Seq(("x", 7)))
+  }
+
+  it should "handle transitive immutability" in {
+    checkCode(q"val x = 1; var y = x; y = 7; y", 7, Seq(("x", 1), ("y", 7)))
+  }
+
+  it should "handle var initialization without body" in {
     checkCode(
       q"var x: Byte = _",
       InterpreterPrimitive(()),
