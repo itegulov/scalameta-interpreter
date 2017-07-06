@@ -27,21 +27,33 @@ object Engine {
     val (assignmentRef, env1) = eval(assignment.rhs, env)
     assignment.lhs match {
       case Term.Name(name) => InterpreterRef.wrap((), env1.extend(name, assignmentRef), t"Unit")
-      case _ => sys.error(s"Can not interpret unrecognized tree ${assignment.lhs}")
+      case _               => sys.error(s"Can not interpret unrecognized tree ${assignment.lhs}")
     }
   }
 
   def evalApply(apply: Term.Apply, env: Env): (InterpreterRef, Env) = {
-    val (funRef, env1) = eval(apply.fun, env)
-    var resEnv         = env1
+    var resEnv = env
     val argRefs = for (arg <- apply.args) yield {
       val (argRef, newEnv) = eval(arg, resEnv)
       resEnv = newEnv
       argRef
     }
-    Try(funRef.asInstanceOf[InterpreterFunctionRef]) match {
-      case Success(fun) => fun.apply(argRefs, resEnv)
-      case Failure(_)   => sys.error(s"Can not apply non-function value $funRef to arguments")
+    apply.fun match {
+      case Term.Select(qual, name) =>
+        val (qualRef, env1) = eval(qual, resEnv)
+        val argValues =
+          argRefs.map(env1.heap.apply).map(_.asInstanceOf[InterpreterPrimitive]).map(_.value)
+        val argClasses = argValues.map(_.getClass)
+        env1.heap.get(qualRef) match {
+          case Some(InterpreterPrimitive(value)) =>
+            import scala.reflect.runtime.universe._
+            val m      = runtimeMirror(value.getClass.getClassLoader).reflect(value)
+            val symbol = m.symbol.typeSignature.member(TermName(name.value))
+            val result = m.reflectMethod(symbol.asMethod)(argValues: _*)
+            val ref    = InterpreterJvmRef(null)
+            (ref, env.extend(ref, InterpreterPrimitive(result)))
+          case _ => sys.error("Illegal state")
+        }
     }
   }
 
