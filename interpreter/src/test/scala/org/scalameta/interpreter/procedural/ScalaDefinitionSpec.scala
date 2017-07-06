@@ -1,26 +1,11 @@
 package org.scalameta.interpreter.procedural
 
 import org.scalameta.interpreter.ScalametaInterpreterSpec
-import org.scalameta.interpreter.internal.Engine
 import org.scalameta.interpreter.internal.environment._
 
 import scala.meta._
 
 class ScalaDefinitionSpec extends ScalametaInterpreterSpec {
-  def checkCode(code: Tree,
-                expectedResult: InterpreterValue,
-                expectedSymbols: Seq[(String, InterpreterValue)]): (InterpreterRef, Env) = {
-    val (ref, env) = Engine.eval(code)
-    env.heap.get(ref).value should be(expectedResult)
-    for ((symbolName, symbolValue) <- expectedSymbols) {
-      val symbolRef = env.stack.headOption.value.get(symbolName).value
-      env.heap.get(symbolRef).value should be(symbolValue)
-    }
-    (ref, env)
-  }
-
-  implicit def intToPrimitive(int: Int): InterpreterPrimitive = InterpreterPrimitive(int)
-
   it should "handle simple val initialization" in {
     checkCode(q"val x = 7", InterpreterPrimitive(()), Seq(("x", 7)))
   }
