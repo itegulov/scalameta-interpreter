@@ -14,17 +14,26 @@ object Engine {
     eval(tree, Env(List(Map.empty), Map.empty))
 
   def eval(tree: Tree, env: Env): (InterpreterRef, Env) = tree match {
-    case literal: Lit     => evalLiteral(literal, env)
-    case definition: Defn => evalLocalDef(definition, env)
-    case block: Block     => evalBlock(block, env)
-    case name: Term.Name  => evalName(name, env)
-    case ifTerm: Term.If  => evalIf(ifTerm, env)
-    case apply: Term.Apply => evalApply(apply, env)
+    case literal: Lit            => evalLiteral(literal, env)
+    case definition: Defn        => evalLocalDef(definition, env)
+    case block: Block            => evalBlock(block, env)
+    case name: Term.Name         => evalName(name, env)
+    case ifTerm: Term.If         => evalIf(ifTerm, env)
+    case apply: Term.Apply       => evalApply(apply, env)
+    case assignment: Term.Assign => evalAssignment(assignment, env)
+  }
+
+  def evalAssignment(assignment: Term.Assign, env: Env): (InterpreterRef, Env) = {
+    val (assignmentRef, env1) = eval(assignment.rhs, env)
+    assignment.lhs match {
+      case Term.Name(name) => InterpreterRef.wrap((), env1.extend(name, assignmentRef), t"Unit")
+      case _ => sys.error(s"Can not interpret unrecognized tree ${assignment.lhs}")
+    }
   }
 
   def evalApply(apply: Term.Apply, env: Env): (InterpreterRef, Env) = {
     val (funRef, env1) = eval(apply.fun, env)
-    var resEnv = env1
+    var resEnv         = env1
     val argRefs = for (arg <- apply.args) yield {
       val (argRef, newEnv) = eval(arg, resEnv)
       resEnv = newEnv
@@ -32,7 +41,7 @@ object Engine {
     }
     Try(funRef.asInstanceOf[InterpreterFunctionRef]) match {
       case Success(fun) => fun.apply(argRefs, resEnv)
-      case Failure(_) => sys.error(s"Can not apply non-function value $funRef to arguments")
+      case Failure(_)   => sys.error(s"Can not apply non-function value $funRef to arguments")
     }
   }
 
