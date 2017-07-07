@@ -37,7 +37,7 @@ case class InterpreterFunctionRef(
   }
 }
 
-class InterpreterCtorRef(
+case class InterpreterCtorRef(
   params: Seq[Seq[Term.Param]],
   tparams: Seq[Type.Param],
   body: Tree,
@@ -71,16 +71,11 @@ class InterpreterCtorRef(
   }
 }
 
-object InterpreterCtorRef {
-  def apply(
-    params: Seq[Seq[Term.Param]],
-    tparams: Seq[Type.Param],
-    body: Tree,
-    capturedEnv: Env
-  ): InterpreterCtorRef = new InterpreterCtorRef(params, tparams, body, capturedEnv)
-}
+class InterpreterJvmRef(tpe: Type) extends InterpreterRef
 
-case class InterpreterJvmRef(tpe: Type) extends InterpreterRef
+object InterpreterJvmRef {
+  def apply(tpe: Type): InterpreterJvmRef = new InterpreterJvmRef(tpe)
+}
 
 object InterpreterRef {
   def wrap[T](value: T, env: Env, tpe: Type): (InterpreterRef, Env) = {
