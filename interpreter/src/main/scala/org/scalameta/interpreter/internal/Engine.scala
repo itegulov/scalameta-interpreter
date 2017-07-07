@@ -6,6 +6,7 @@ import com.typesafe.scalalogging.Logger
 import scala.collection.immutable
 import scala.meta.Term.Block
 import scala.meta._
+import scala.runtime.BoxesRunTime
 import scala.util.{Failure, Success, Try}
 
 object Engine {
@@ -15,15 +16,16 @@ object Engine {
     eval(tree, Env(List(Map.empty), Map.empty, ClassTable(Map.empty)))
 
   def eval(tree: Tree, env: Env): (InterpreterRef, Env) = tree match {
-    case literal: Lit            => evalLiteral(literal, env)
-    case definition: Defn        => evalLocalDef(definition, env)
-    case block: Block            => evalBlock(block, env)
-    case name: Term.Name         => evalName(name, env)
-    case ifTerm: Term.If         => evalIf(ifTerm, env)
-    case apply: Term.Apply       => evalApply(apply, env)
-    case assignment: Term.Assign => evalAssignment(assignment, env)
-    case newTerm: Term.New       => evalNew(newTerm, env)
-    case select: Term.Select     => evalSelect(select, env)
+    case literal: Lit                    => evalLiteral(literal, env)
+    case definition: Defn                => evalLocalDef(definition, env)
+    case block: Block                    => evalBlock(block, env)
+    case name: Term.Name                 => evalName(name, env)
+    case ifTerm: Term.If                 => evalIf(ifTerm, env)
+    case apply: Term.Apply               => evalApply(apply, env)
+    case Term.ApplyInfix(lhs, op, _, xs) => evalApply(Term.Apply(Term.Select(lhs, op), xs), env)
+    case assignment: Term.Assign         => evalAssignment(assignment, env)
+    case newTerm: Term.New               => evalNew(newTerm, env)
+    case select: Term.Select             => evalSelect(select, env)
   }
 
   def evalSelect(select: Term.Select, env: Env): (InterpreterRef, Env) = {
@@ -84,10 +86,10 @@ object Engine {
         val argClasses = argValues.map(_.getClass)
         env1.heap.get(qualRef) match {
           case Some(InterpreterPrimitive(value)) =>
-            import scala.reflect.runtime.universe._
-            val m      = runtimeMirror(value.getClass.getClassLoader).reflect(value)
-            val symbol = m.symbol.typeSignature.member(TermName(name.value))
-            val result = m.reflectMethod(symbol.asMethod)(argValues: _*)
+            val runtimeName = toRuntimeName(name.value)
+            val allFuns = classOf[BoxesRunTime].getDeclaredMethods.filter(_.getName == runtimeName)
+            val fun = allFuns.head
+            val result = fun.invoke(null, (value +: argValues).asInstanceOf[Seq[AnyRef]]: _*)
             val ref    = InterpreterJvmRef(null)
             (ref, env.extend(ref, InterpreterPrimitive(result)))
           case Some(InterpreterObject(fields)) =>
@@ -166,6 +168,14 @@ object Engine {
     case t"Boolean" => InterpreterRef.wrap(false, env, tpe)
     case t"Unit"    => InterpreterRef.wrap((), env, tpe)
     case _          => InterpreterRef.wrap(null, env, tpe)
+  }
+
+  def toRuntimeName(name: String): String = name match {
+    case "+" => "add"
+    case "-" => "subtract"
+    case "*" => "multiply"
+    case "/" => "divide"
+    case x => x
   }
 
   def evalLocalDef(definition: Defn, env: Env): (InterpreterRef, Env) =
