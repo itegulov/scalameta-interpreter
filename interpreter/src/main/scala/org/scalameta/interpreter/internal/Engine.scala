@@ -104,6 +104,12 @@ object Engine {
             }
           case _ => sys.error("Illegal state")
         }
+      case Term.Name(name) =>
+        resEnv.stack.head.get(name) match {
+          case Some(funRef: InterpreterFunctionRef) => funRef(argRefs, resEnv)
+          case Some(x)                              => sys.error(s"Expected function, but got $x")
+          case None                                 => sys.error(s"Unknown symbol $name")
+        }
     }
   }
 

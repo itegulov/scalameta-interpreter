@@ -41,4 +41,46 @@ class ScalaClassSpec extends ScalametaInterpreterSpec {
          a.foo("1")
        """, "1", Seq())
   }
+
+  it should "be able to access fields in methods" in {
+    checkCode(q"""
+         class A(val x: Int, val y: Double) {
+           def foo(z: Int): Int = z * x
+         }
+         val a = new A(2, 1.0)
+         a.foo(3)
+       """, 6, Seq())
+  }
+
+  it should "handle computed fields properly" in {
+    checkCode(q"""
+         class A(val x: Int, val y: Double) {
+           val z: Int = x * 2
+         }
+         val a = new A(1, 1.0)
+         a.z
+       """, 2, Seq())
+  }
+
+  it should "handle fields in scopes properly" in {
+    checkCode(q"""
+         val z = 3
+         class A(val x: Int, val y: Double) {
+           val z: Int = x * 2
+         }
+         val a = new A(1, 1.0)
+         a.z + z
+       """, 5, Seq())
+  }
+
+  it should "handle functions in scopes properly" in {
+    checkCode(q"""
+         def foo(z: Int): Int = z * 3
+         class A(val x: Int, val y: Double) {
+           def foo(z: Int): Int = z * x
+         }
+         val a = new A(2, 1.0)
+         a.foo(3) + foo(3)
+       """, 15, Seq())
+  }
 }
