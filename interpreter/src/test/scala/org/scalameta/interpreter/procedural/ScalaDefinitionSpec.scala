@@ -7,11 +7,11 @@ import scala.meta._
 
 class ScalaDefinitionSpec extends ScalametaInterpreterSpec {
   it should "handle simple val initialization" in {
-    checkCode(q"val x = 7", InterpreterPrimitive(()), Seq(("x", 7)))
+    checkCode(q"val x = 7", (), Seq(("x", 7)))
   }
 
   it should "handle simple var initialization" in {
-    checkCode(q"var x = 7", InterpreterPrimitive(()), Seq(("x", 7)))
+    checkCode(q"var x = 7", (), Seq(("x", 7)))
   }
 
   it should "handle val-val initialization" in {

@@ -32,6 +32,10 @@ class ScalametaInterpreterSpec
 
   implicit def intToPrimitive(int: Int): InterpreterPrimitive = InterpreterPrimitive(int)
 
+  implicit def doubleToPrimitive(double: Double): InterpreterPrimitive = InterpreterPrimitive(double)
+
+  implicit def unitToPrimitive(unit: Unit): InterpreterPrimitive = InterpreterPrimitive(unit)
+
   implicit def booleanToPrimitive(bool: Boolean): InterpreterPrimitive = InterpreterPrimitive(bool)
 
   implicit def stringToPrimitive(str: String): InterpreterPrimitive = InterpreterPrimitive(str)
