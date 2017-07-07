@@ -3,6 +3,7 @@ package org.scalameta.interpreter.internal
 import org.scalameta.interpreter.internal.environment._
 import com.typesafe.scalalogging.Logger
 
+import scala.collection.immutable
 import scala.meta.Term.Block
 import scala.meta._
 import scala.util.{Failure, Success, Try}
@@ -11,7 +12,7 @@ object Engine {
   private val logger = Logger[Engine.type]
 
   def eval(tree: Tree): (InterpreterRef, Env) =
-    eval(tree, Env(List(Map.empty), Map.empty))
+    eval(tree, Env(List(Map.empty), Map.empty, ClassTable(Map.empty)))
 
   def eval(tree: Tree, env: Env): (InterpreterRef, Env) = tree match {
     case literal: Lit            => evalLiteral(literal, env)
@@ -21,6 +22,43 @@ object Engine {
     case ifTerm: Term.If         => evalIf(ifTerm, env)
     case apply: Term.Apply       => evalApply(apply, env)
     case assignment: Term.Assign => evalAssignment(assignment, env)
+    case newTerm: Term.New       => evalNew(newTerm, env)
+    case select: Term.Select     => evalSelect(select, env)
+  }
+
+  def evalSelect(select: Term.Select, env: Env): (InterpreterRef, Env) = {
+    val (qualRef, env1) = eval(select.qual, env)
+    env1.heap.get(qualRef) match {
+      case Some(InterpreterPrimitive(value)) =>
+        import scala.reflect.runtime.universe._
+        val m      = runtimeMirror(value.getClass.getClassLoader).reflect(value)
+        val symbol = m.symbol.typeSignature.member(TermName(select.name.value))
+        val result = m.reflectMethod(symbol.asMethod)()
+        val ref    = InterpreterJvmRef(null)
+        (ref, env.extend(ref, InterpreterPrimitive(result)))
+      case Some(InterpreterObject(fields)) =>
+        fields.get(select.name.value) match {
+          case Some(value) => (value, env1)
+          case None => sys.error(s"Unknown field ${select.name} for object $qualRef")
+        }
+    }
+  }
+
+  def evalNew(newTerm: Term.New, env: Env): (InterpreterRef, Env) = {
+    val ctorCall = newTerm.templ.parents.head // FIXME: Is it possible to have more than one ctor call?
+    ctorCall match {
+      case Term.Apply(Ctor.Ref.Name(className), argTerms) =>
+        var resEnv = env
+        val argRefs = for (arg <- argTerms) yield {
+          val (argRef, newEnv) = eval(arg, resEnv)
+          resEnv = newEnv
+          argRef
+        }
+        resEnv.classTable.table.get(ClassName(className)) match {
+          case Some(classInfo) => classInfo.constructor(argRefs, resEnv)
+          case None => sys.error(s"Unknown class $className")
+        }
+    }
   }
 
   def evalAssignment(assignment: Term.Assign, env: Env): (InterpreterRef, Env) = {
@@ -52,6 +90,14 @@ object Engine {
             val result = m.reflectMethod(symbol.asMethod)(argValues: _*)
             val ref    = InterpreterJvmRef(null)
             (ref, env.extend(ref, InterpreterPrimitive(result)))
+          case Some(InterpreterObject(fields)) =>
+            fields.get(name.value) match {
+              case Some(ref) => Try(ref.asInstanceOf[InterpreterFunctionRef]) match {
+                case Success(fun) => fun(argRefs, env1)
+                case Failure(_) => sys.error(s"Tried to call ${name.value}, but it is not a function")
+              }
+              case None => sys.error(s"Unknown field $name for object $qualRef")
+            }
           case _ => sys.error("Illegal state")
         }
     }
@@ -99,12 +145,12 @@ object Engine {
     case Lit.Char(value)    => InterpreterRef.wrap(value, env, t"Char")
     case Lit.Int(value)     => InterpreterRef.wrap(value, env, t"Int")
     case Lit.Long(value)    => InterpreterRef.wrap(value, env, t"Long")
-    case Lit.Float(value)   => InterpreterRef.wrap(value, env, t"Float")
-    case Lit.Double(value)  => InterpreterRef.wrap(value, env, t"Double")
+    case Lit.Float(value)   => InterpreterRef.wrap(value.toFloat, env, t"Float")
+    case Lit.Double(value)  => InterpreterRef.wrap(value.toDouble, env, t"Double")
     case Lit.Boolean(value) => InterpreterRef.wrap(value, env, t"Boolean")
     case Lit.Unit(value)    => InterpreterRef.wrap(value, env, t"Unit")
     case Lit.String(value)  => InterpreterRef.wrap(value, env, t"String")
-    case Lit.Null(value)    => InterpreterRef.wrap(value, env, t"Null")
+    case Lit.Null(value)    => InterpreterRef.wrap(value, env, t"Any")
     case Lit.Symbol(value)  => sys.error(s"Can not interpret symbol tree $literal")
     case _                  => sys.error(s"Can not interpret unrecognized tree $literal")
   }
@@ -154,7 +200,9 @@ object Engine {
       case Defn.Trait(mods, name, tparams, ctor, templ) =>
         ???
       case Defn.Class(mods, name, tparams, ctor, templ) =>
-        ???
+        val ctorRef = InterpreterCtorRef(ctor.paramss, null, Block(templ.stats.getOrElse(immutable.Seq.empty[Stat])), env)
+        val resEnv = env.addClass(ClassName(name.value), ClassInfo(ctorRef))
+        InterpreterRef.wrap((), resEnv, t"Unit")
       case Defn.Macro(mods, name, tparams, paramss, decltpe, body) =>
         sys.error("Macroses are not supported")
       case Defn.Object(mods, name, templ) =>

@@ -37,6 +37,49 @@ case class InterpreterFunctionRef(
   }
 }
 
+class InterpreterCtorRef(
+  params: Seq[Seq[Term.Param]],
+  tparams: Seq[Type.Param],
+  body: Tree,
+  capturedEnv: Env
+) extends InterpreterRef {
+  def apply(argRefs: Seq[InterpreterRef], callSiteEnv: Env): (InterpreterRef, Env) = {
+    val env1 = callSiteEnv.pushFrame(capturedEnv.stack.head)
+    params match {
+      case fParams :: Nil if fParams.size == argRefs.size =>
+        val env2 = fParams
+          .zip(argRefs)
+          .foldLeft(env1)((tmpEnv, argRef) => tmpEnv.extend(argRef._1.name.value, argRef._2))
+        val (_, env3) = Engine.eval(body, env2)
+        val ref       = InterpreterJvmRef(null)
+        val obj       = InterpreterObject(env3.stack.head)
+        val newHeap   = callSiteEnv.heap ++ env3.heap + (ref -> obj)
+        (ref, Env(callSiteEnv.stack, newHeap, callSiteEnv.classTable))
+      case fParams :: fParamss if fParams.size == argRefs.size =>
+        sys.error("Can not process carried constructor")
+      case fParams :: _ =>
+        sys.error(s"Expected ${fParams.size} arguments for constructor, but got ${argRefs.size}")
+      case Nil if argRefs.isEmpty =>
+        val (_, env2) = Engine.eval(body, env1)
+        val ref       = InterpreterJvmRef(null)
+        val obj       = InterpreterObject(env2.stack.head)
+        val newHeap   = callSiteEnv.heap ++ env2.heap + (ref -> obj)
+        (ref, Env(callSiteEnv.stack, newHeap, callSiteEnv.classTable))
+      case Nil =>
+        sys.error(s"Did not expect any arguments for constructor, but got ${argRefs.size}")
+    }
+  }
+}
+
+object InterpreterCtorRef {
+  def apply(
+    params: Seq[Seq[Term.Param]],
+    tparams: Seq[Type.Param],
+    body: Tree,
+    capturedEnv: Env
+  ): InterpreterCtorRef = new InterpreterCtorRef(params, tparams, body, capturedEnv)
+}
+
 case class InterpreterJvmRef(tpe: Type) extends InterpreterRef
 
 object InterpreterRef {
