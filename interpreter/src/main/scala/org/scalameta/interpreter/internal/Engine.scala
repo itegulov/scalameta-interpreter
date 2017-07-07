@@ -41,7 +41,7 @@ object Engine {
       case Some(InterpreterObject(fields)) =>
         fields.get(select.name.value) match {
           case Some(value) => (value, env1)
-          case None => sys.error(s"Unknown field ${select.name} for object $qualRef")
+          case None        => sys.error(s"Unknown field ${select.name} for object $qualRef")
         }
     }
   }
@@ -58,7 +58,7 @@ object Engine {
         }
         resEnv.classTable.table.get(ClassName(className)) match {
           case Some(classInfo) => classInfo.constructor(argRefs, resEnv)
-          case None => sys.error(s"Unknown class $className")
+          case None            => sys.error(s"Unknown class $className")
         }
     }
   }
@@ -87,17 +87,19 @@ object Engine {
         env1.heap.get(qualRef) match {
           case Some(InterpreterPrimitive(value)) =>
             val runtimeName = toRuntimeName(name.value)
-            val allFuns = classOf[BoxesRunTime].getDeclaredMethods.filter(_.getName == runtimeName)
-            val fun = allFuns.head
-            val result = fun.invoke(null, (value +: argValues).asInstanceOf[Seq[AnyRef]]: _*)
-            val ref    = InterpreterJvmRef(null)
+            val allFuns     = classOf[BoxesRunTime].getDeclaredMethods.filter(_.getName == runtimeName)
+            val fun         = allFuns.head
+            val result      = fun.invoke(null, (value +: argValues).asInstanceOf[Seq[AnyRef]]: _*)
+            val ref         = InterpreterJvmRef(null)
             (ref, env.extend(ref, InterpreterPrimitive(result)))
           case Some(InterpreterObject(fields)) =>
             fields.get(name.value) match {
-              case Some(ref) => Try(ref.asInstanceOf[InterpreterFunctionRef]) match {
-                case Success(fun) => fun(argRefs, env1)
-                case Failure(_) => sys.error(s"Tried to call ${name.value}, but it is not a function")
-              }
+              case Some(ref) =>
+                Try(ref.asInstanceOf[InterpreterFunctionRef]) match {
+                  case Success(fun) => fun(argRefs, env1)
+                  case Failure(_) =>
+                    sys.error(s"Tried to call ${name.value}, but it is not a function")
+                }
               case None => sys.error(s"Unknown field $name for object $qualRef")
             }
           case _ => sys.error("Illegal state")
@@ -175,7 +177,7 @@ object Engine {
     case "-" => "subtract"
     case "*" => "multiply"
     case "/" => "divide"
-    case x => x
+    case x   => x
   }
 
   def evalLocalDef(definition: Defn, env: Env): (InterpreterRef, Env) =
@@ -210,7 +212,12 @@ object Engine {
       case Defn.Trait(mods, name, tparams, ctor, templ) =>
         ???
       case Defn.Class(mods, name, tparams, ctor, templ) =>
-        val ctorRef = InterpreterCtorRef(ctor.paramss, null, Block(templ.stats.getOrElse(immutable.Seq.empty[Stat])), env)
+        val ctorRef = InterpreterCtorRef(
+          ctor.paramss,
+          null,
+          Block(templ.stats.getOrElse(immutable.Seq.empty[Stat])),
+          env
+        )
         val resEnv = env.addClass(ClassName(name.value), ClassInfo(ctorRef))
         InterpreterRef.wrap((), resEnv, t"Unit")
       case Defn.Macro(mods, name, tparams, paramss, decltpe, body) =>
