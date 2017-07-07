@@ -221,7 +221,7 @@ object Engine {
         val ctorRef = InterpreterCtorRef(
           ctor.paramss,
           null,
-          Block(templ.stats.getOrElse(immutable.Seq.empty[Stat])),
+          Block(templ.stats.getOrElse(immutable.Seq.empty)),
           env
         )
         val resEnv = env.addClass(ClassName(name.value), ClassInfo(ctorRef))
@@ -229,7 +229,11 @@ object Engine {
       case Defn.Macro(mods, name, tparams, paramss, decltpe, body) =>
         sys.error("Macroses are not supported")
       case Defn.Object(mods, name, templ) =>
-        ???
+        val (_, env1) = eval(Block(templ.stats.getOrElse(immutable.Seq.empty)), env.pushFrame(Map.empty))
+        val obj = InterpreterObject(env1.stack.head)
+        val ref = InterpreterJvmRef(Type.Name(name.value))
+        val resEnv = Env(env1.stack.tail, env1.heap + (ref -> obj), env1.classTable)
+        InterpreterRef.wrap((), resEnv.extend(name.value, ref), t"Unit")
       case Defn.Type(mods, name, tparams, body) =>
         logger.info("Ignoring type alias definition")
         InterpreterRef.wrap((), env, t"Unit")
