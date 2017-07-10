@@ -83,4 +83,16 @@ class ScalaClassSpec extends ScalametaInterpreterSpec {
          a.foo(3) + foo(3)
        """, 15, Seq())
   }
+
+  it should "handle mutable classes properly" in {
+    checkCode(q"""
+      class A(var x: Int) {
+        def foo(y: Int) = x * y
+      }
+      val a = new A(2)
+      a.foo(3)
+      a.x = 7
+      a.foo(3)
+    """, 21, Seq())
+  }
 }

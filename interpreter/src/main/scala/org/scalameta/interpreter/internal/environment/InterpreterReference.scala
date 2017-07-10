@@ -4,7 +4,9 @@ import org.scalameta.interpreter.internal.Engine
 
 import scala.meta._
 
-sealed trait InterpreterRef
+sealed trait InterpreterRef {
+  def tpe: Type
+}
 
 case class InterpreterFunctionRef(
   params: Seq[Seq[Term.Param]],
@@ -35,13 +37,17 @@ case class InterpreterFunctionRef(
         sys.error(s"Did not expect any arguments, but got ${argRefs.size}")
     }
   }
+
+  override def tpe: Type = ???
 }
 
 case class InterpreterCtorRef(
+  className: ClassName,
   params: Seq[Seq[Term.Param]],
   tparams: Seq[Type.Param],
   body: Tree,
-  capturedEnv: Env
+  capturedEnv: Env,
+  parentConstructors: Seq[(InterpreterCtorRef, Seq[Term.Arg])]
 ) extends InterpreterRef {
   def apply(argRefs: Seq[InterpreterRef], callSiteEnv: Env): (InterpreterRef, Env) = {
     val env1 = callSiteEnv.pushFrame(capturedEnv.stack.head)
@@ -50,11 +56,14 @@ case class InterpreterCtorRef(
         val env2 = fParams
           .zip(argRefs)
           .foldLeft(env1)((tmpEnv, argRef) => tmpEnv.extend(argRef._1.name.value, argRef._2))
-        val (_, env3) = Engine.eval(body, env2)
         val ref       = InterpreterJvmRef(null)
-        val obj       = InterpreterObject(env3.stack.head)
-        val newHeap   = callSiteEnv.heap ++ env3.heap + (ref -> obj)
-        (ref, Env(callSiteEnv.stack, newHeap, callSiteEnv.classTable))
+        val obj       = InterpreterObject(className, env2.stack.head) // FIXME: not really env2.stack, but only ctor args
+        val newStack = capturedEnv.stack
+        val newHeap = env2.heap + (ref -> obj)
+        val newThisContext = env2.thisContext + (className -> ref)
+        val (_, env3) = Engine.eval(body, Env(newStack, newHeap, env2.classTable, newThisContext))
+        val finalHeap   = callSiteEnv.heap ++ env3.heap
+        (ref, Env(callSiteEnv.stack, finalHeap, callSiteEnv.classTable, callSiteEnv.thisContext))
       case fParams :: fParamss if fParams.size == argRefs.size =>
         sys.error("Can not process carried constructor")
       case fParams :: _ =>
@@ -62,16 +71,18 @@ case class InterpreterCtorRef(
       case Nil if argRefs.isEmpty =>
         val (_, env2) = Engine.eval(body, env1)
         val ref       = InterpreterJvmRef(null)
-        val obj       = InterpreterObject(env2.stack.head)
+        val obj       = InterpreterObject(className, env2.stack.head)
         val newHeap   = callSiteEnv.heap ++ env2.heap + (ref -> obj)
-        (ref, Env(callSiteEnv.stack, newHeap, callSiteEnv.classTable))
+        (ref, Env(callSiteEnv.stack, newHeap, callSiteEnv.classTable, callSiteEnv.thisContext))
       case Nil =>
         sys.error(s"Did not expect any arguments for constructor, but got ${argRefs.size}")
     }
   }
+
+  override def tpe: Type = ???
 }
 
-class InterpreterJvmRef(tpe: Type) extends InterpreterRef
+class InterpreterJvmRef(val tpe: Type) extends InterpreterRef
 
 object InterpreterJvmRef {
   def apply(tpe: Type): InterpreterJvmRef = new InterpreterJvmRef(tpe)

@@ -4,6 +4,7 @@ import org.scalameta.interpreter.internal.environment._
 import com.typesafe.scalalogging.Logger
 
 import scala.collection.immutable
+import scala.collection.immutable.ListMap
 import scala.meta.Term.Block
 import scala.meta._
 import scala.runtime.BoxesRunTime
@@ -13,11 +14,12 @@ object Engine {
   private val logger = Logger[Engine.type]
 
   def eval(tree: Tree): (InterpreterRef, Env) =
-    eval(tree, Env(List(Map.empty), Map.empty, ClassTable(Map.empty)))
+    eval(tree, Env(List(Map.empty), Map.empty, ClassTable(Map.empty), ListMap.empty))
 
   def eval(tree: Tree, env: Env): (InterpreterRef, Env) = tree match {
     case literal: Lit                    => evalLiteral(literal, env)
     case definition: Defn                => evalLocalDef(definition, env)
+    case declaration: Decl               => InterpreterRef.wrap((), env, t"Unit") // FIXME: should probably do something with them
     case block: Block                    => evalBlock(block, env)
     case name: Term.Name                 => evalName(name, env)
     case ifTerm: Term.If                 => evalIf(ifTerm, env)
@@ -26,6 +28,17 @@ object Engine {
     case assignment: Term.Assign         => evalAssignment(assignment, env)
     case newTerm: Term.New               => evalNew(newTerm, env)
     case select: Term.Select             => evalSelect(select, env)
+    case template: Template              => evalTemplate(template, env)
+  }
+
+  def evalTemplate(template: Template, env: Env): (InterpreterRef, Env) = {
+    var resEnv = env
+    for (arg <- template.stats.getOrElse(Seq.empty)) {
+      val (argRef, newEnv) = eval(arg, resEnv)
+      resEnv = newEnv
+      argRef
+    }
+    InterpreterRef.wrap((), resEnv, t"Unit")
   }
 
   def evalSelect(select: Term.Select, env: Env): (InterpreterRef, Env) = {
@@ -38,7 +51,7 @@ object Engine {
         val result = m.reflectMethod(symbol.asMethod)()
         val ref    = InterpreterJvmRef(null)
         (ref, env.extend(ref, InterpreterPrimitive(result)))
-      case Some(InterpreterObject(fields)) =>
+      case Some(InterpreterObject(_, fields)) =>
         fields.get(select.name.value) match {
           case Some(value) => (value, env1)
           case None        => sys.error(s"Unknown field ${select.name} for object $qualRef")
@@ -67,7 +80,17 @@ object Engine {
     val (assignmentRef, env1) = eval(assignment.rhs, env)
     assignment.lhs match {
       case Term.Name(name) => InterpreterRef.wrap((), env1.extend(name, assignmentRef), t"Unit")
-      case _               => sys.error(s"Can not interpret unrecognized tree ${assignment.lhs}")
+      case Term.Select(qual, name) =>
+        val (ref, env2) = eval(qual, env1)
+        env2.heap.get(ref) match {
+          case Some(InterpreterPrimitive(value)) => sys.error("Can not mutate primitives")
+          case Some(obj @ InterpreterObject(_, fields)) if fields.contains(name.value) =>
+            val newObj = obj.extend(name.value, assignmentRef)
+            InterpreterRef.wrap((), env2.extend(ref, newObj), t"Unit")
+          case Some(InterpreterObject(_, _)) => sys.error(s"Unknown field ${name.value} for $ref")
+          case None                       => sys.error("Illegal state")
+        }
+      case _ => sys.error(s"Can not interpret unrecognized tree ${assignment.lhs}")
     }
   }
 
@@ -81,22 +104,20 @@ object Engine {
     apply.fun match {
       case Term.Select(qual, name) =>
         val (qualRef, env1) = eval(qual, resEnv)
-        val argValues =
-          argRefs.map(env1.heap.apply).map(_.asInstanceOf[InterpreterPrimitive]).map(_.value)
-        val argClasses = argValues.map(_.getClass)
         env1.heap.get(qualRef) match {
           case Some(InterpreterPrimitive(value)) =>
+            val argValues   = argRefs.map(env1.heap.apply).map(_.asInstanceOf[InterpreterPrimitive]).map(_.value)
             val runtimeName = toRuntimeName(name.value)
             val allFuns     = classOf[BoxesRunTime].getDeclaredMethods.filter(_.getName == runtimeName)
             val fun         = allFuns.head
             val result      = fun.invoke(null, (value +: argValues).asInstanceOf[Seq[AnyRef]]: _*)
             val ref         = InterpreterJvmRef(null)
             (ref, env.extend(ref, InterpreterPrimitive(result)))
-          case Some(InterpreterObject(fields)) =>
+          case Some(InterpreterObject(className, fields)) =>
             fields.get(name.value) match {
               case Some(ref) =>
                 Try(ref.asInstanceOf[InterpreterFunctionRef]) match {
-                  case Success(fun) => fun(argRefs, env1)
+                  case Success(fun) => fun(argRefs, env1.addThis(className, qualRef))
                   case Failure(_) =>
                     sys.error(s"Tried to call ${name.value}, but it is not a function")
                 }
@@ -136,8 +157,17 @@ object Engine {
 
   def evalName(name: Term.Name, env: Env): (InterpreterRef, Env) =
     env.stack.head.get(name.value) match {
-      case Some(ref) => (ref, env)
-      case None      => sys.error(s"Unknown reference $name")
+      case Some(ref) =>
+        (ref, env)
+      case None      =>
+        for ((_, classRef) <- env.thisContext) {
+          val obj = env.heap(classRef).asInstanceOf[InterpreterObject]
+          obj.fields.get(name.value) match {
+            case Some(ref) => return (ref, env)
+            case _ =>
+          }
+        }
+        sys.error(s"Unknown reference $name")
     }
 
   def evalBlock(block: Block, env: Env): (InterpreterRef, Env) = {
@@ -186,53 +216,110 @@ object Engine {
     case x   => x
   }
 
+  trait A {
+    val x = 7
+  }
+
   def evalLocalDef(definition: Defn, env: Env): (InterpreterRef, Env) =
     definition match {
       case Defn.Val(mods, pats, _, rhs) =>
         val (res, env1) = eval(rhs, env)
-        var resEnv      = env1
-        for (pat <- pats) {
-          pat match {
-            case Pat.Var.Term(name) =>
-              resEnv = resEnv.extend(name.value, res)
-          }
+        definition.parent match {
+          case Some(Template(_)) =>
+            val (_, ref) = env.thisContext.head
+            var resObj = env1.heap(ref).asInstanceOf[InterpreterObject]
+            for (pat <- pats) {
+              pat match {
+                case Pat.Var.Term(termName) =>
+                  resObj = resObj.extend(termName.value, res)
+              }
+            }
+            InterpreterRef.wrap((), env1.extend(ref, resObj), t"Unit")
+          case _ =>
+            var resEnv      = env1
+            for (pat <- pats) {
+              pat match {
+                case Pat.Var.Term(name) =>
+                  resEnv = resEnv.extend(name.value, res)
+              }
+            }
+            InterpreterRef.wrap((), resEnv, t"Unit")
         }
-        InterpreterRef.wrap((), resEnv, t"Unit")
       case Defn.Var(mods, pats, optTpe, optRhs) =>
         val (res, env1) = (optTpe, optRhs) match {
           case (_, Some(rhs))    => eval(rhs, env)
           case (Some(tpe), None) => defaultValue(tpe, env)
           case (None, None)      => sys.error("Unreachable")
         }
-        var resEnv = env1
-        for (pat <- pats) {
-          pat match {
-            case Pat.Var.Term(name) =>
-              resEnv = resEnv.extend(name.value, res)
-          }
+        definition.parent match {
+          case Some(Template(_)) =>
+            val (_, ref) = env.thisContext.head
+            var resObj = env1.heap(ref).asInstanceOf[InterpreterObject]
+            for (pat <- pats) {
+              pat match {
+                case Pat.Var.Term(termName) =>
+                  resObj = resObj.extend(termName.value, res)
+              }
+            }
+            InterpreterRef.wrap((), env1.extend(ref, resObj), t"Unit")
+          case _ =>
+            var resEnv = env1
+            for (pat <- pats) {
+              pat match {
+                case Pat.Var.Term(name) =>
+                  resEnv = resEnv.extend(name.value, res)
+              }
+            }
+            InterpreterRef.wrap((), resEnv, t"Unit")
         }
-        InterpreterRef.wrap((), resEnv, t"Unit")
       case Defn.Def(mods, name, tparams, paramss, tpe, body) =>
-        val funRef = InterpreterFunctionRef(paramss, tparams, body, env)
-        (funRef, env.extend(name.value, funRef))
+        definition.parent match {
+          case Some(Template(_)) =>
+            val (_, ref) = env.thisContext.head
+            val obj = env.heap(ref).asInstanceOf[InterpreterObject]
+            val funRef = InterpreterFunctionRef(paramss, tparams, body, env)
+            val newObj = obj.extend(name.value, funRef)
+            InterpreterRef.wrap((), env.extend(name.value, funRef).extend(ref, newObj), t"Unit")
+          case _ =>
+            val funRef = InterpreterFunctionRef(paramss, tparams, body, env)
+            InterpreterRef.wrap((), env.extend(name.value, funRef), t"Unit")
+        }
       case Defn.Trait(mods, name, tparams, ctor, templ) =>
+        require(ctor.paramss.isEmpty, "Trait constructor should not have any parameters")
         ???
       case Defn.Class(mods, name, tparams, ctor, templ) =>
+        val constructors = for (parent <- templ.parents) yield {
+          parent match {
+            case Term.Apply(Ctor.Ref.Name(className), args) =>
+              env.classTable.table.get(ClassName(className)) match {
+                case Some(classInfo) => (classInfo.constructor, args)
+                case None            => sys.error(s"Unknown parent class: $className")
+              }
+            case Ctor.Ref.Name(className) =>
+              env.classTable.table.get(ClassName(className)) match {
+                case Some(classInfo) => (classInfo.constructor, Seq.empty)
+                case None            => sys.error(s"Unknown parent class: $className")
+              }
+          }
+        }
         val ctorRef = InterpreterCtorRef(
+          ClassName(name.value),
           ctor.paramss,
           null,
-          Block(templ.stats.getOrElse(immutable.Seq.empty)),
-          env
+          templ,
+          env,
+          constructors
         )
         val resEnv = env.addClass(ClassName(name.value), ClassInfo(ctorRef))
         InterpreterRef.wrap((), resEnv, t"Unit")
       case Defn.Macro(mods, name, tparams, paramss, decltpe, body) =>
         sys.error("Macroses are not supported")
       case Defn.Object(mods, name, templ) =>
-        val (_, env1) = eval(Block(templ.stats.getOrElse(immutable.Seq.empty)), env.pushFrame(Map.empty))
-        val obj = InterpreterObject(env1.stack.head)
-        val ref = InterpreterJvmRef(Type.Name(name.value))
-        val resEnv = Env(env1.stack.tail, env1.heap + (ref -> obj), env1.classTable)
+        val (_, env1) =
+          eval(Block(templ.stats.getOrElse(immutable.Seq.empty)), env.pushFrame(Map.empty))
+        val obj    = InterpreterObject(ClassName(name.value), env1.stack.head)
+        val ref    = InterpreterJvmRef(Type.Name(name.value))
+        val resEnv = Env(env1.stack.tail, env1.heap + (ref -> obj), env1.classTable, env1.thisContext)
         InterpreterRef.wrap((), resEnv.extend(name.value, ref), t"Unit")
       case Defn.Type(mods, name, tparams, body) =>
         logger.info("Ignoring type alias definition")
