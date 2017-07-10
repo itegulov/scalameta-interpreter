@@ -56,10 +56,15 @@ case class InterpreterCtorRef(
         val env2 = fParams
           .zip(argRefs)
           .foldLeft(env1)((tmpEnv, argRef) => tmpEnv.extend(argRef._1.name.value, argRef._2))
+        val parentObjectsAndEnvs = for ((parentConstructor, args) <- parentConstructors) yield {
+          val (ref, newEnv) = parentConstructor.apply(args.map(_.asInstanceOf[Term.Name].value).map(env2.stack.head.apply), env1)
+          (newEnv.heap(ref).asInstanceOf[InterpreterObject], newEnv)
+        }
+        val (parentObjects, parentEnvs) = parentObjectsAndEnvs.unzip
         val ref       = InterpreterJvmRef(null)
-        val obj       = InterpreterObject(className, env2.stack.head) // FIXME: not really env2.stack, but only ctor args
+        val obj       = InterpreterObject(className, env2.stack.head ++ parentObjects.flatMap(_.fields)) // FIXME: not really env2.stack, but only ctor args
         val newStack = capturedEnv.stack
-        val newHeap = env2.heap + (ref -> obj)
+        val newHeap = env2.heap + (ref -> obj) ++ parentEnvs.flatMap(_.heap)
         val newThisContext = env2.thisContext + (className -> ref)
         val (_, env3) = Engine.eval(body, Env(newStack, newHeap, env2.classTable, newThisContext))
         val finalHeap   = callSiteEnv.heap ++ env3.heap
@@ -69,11 +74,19 @@ case class InterpreterCtorRef(
       case fParams :: _ =>
         sys.error(s"Expected ${fParams.size} arguments for constructor, but got ${argRefs.size}")
       case Nil if argRefs.isEmpty =>
-        val (_, env2) = Engine.eval(body, env1)
+        val parentObjectsAndEnvs = for ((parentConstructor, args) <- parentConstructors) yield {
+          val (ref, newEnv) = parentConstructor.apply(args.map(_.asInstanceOf[Term.Name].value).map(env1.stack.head.apply), env1)
+          (newEnv.heap(ref).asInstanceOf[InterpreterObject], newEnv)
+        }
+        val (parentObjects, parentEnvs) = parentObjectsAndEnvs.unzip
         val ref       = InterpreterJvmRef(null)
-        val obj       = InterpreterObject(className, env2.stack.head)
-        val newHeap   = callSiteEnv.heap ++ env2.heap + (ref -> obj)
-        (ref, Env(callSiteEnv.stack, newHeap, callSiteEnv.classTable, callSiteEnv.thisContext))
+        val obj       = InterpreterObject(className, env1.stack.head ++ parentObjects.flatMap(_.fields)) // FIXME: not really env1.stack, but only ctor args
+        val newStack = capturedEnv.stack
+        val newHeap = env1.heap + (ref -> obj) ++ parentEnvs.flatMap(_.heap)
+        val newThisContext = env1.thisContext + (className -> ref)
+        val (_, env2) = Engine.eval(body, Env(newStack, newHeap, env1.classTable, newThisContext))
+        val finalHeap   = callSiteEnv.heap ++ env2.heap
+        (ref, Env(callSiteEnv.stack, finalHeap, callSiteEnv.classTable, callSiteEnv.thisContext))
       case Nil =>
         sys.error(s"Did not expect any arguments for constructor, but got ${argRefs.size}")
     }
