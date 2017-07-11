@@ -57,6 +57,10 @@ object ScalametaMirror {
         case Term.Name("-") => Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Type("Int")), Signature.Method("-", "(I)I"))
         case Term.Name("*") => Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Type("Int")), Signature.Method("*", "(I)I"))
         case Term.Name("/") => Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Type("Int")), Signature.Method("/", "(I)I"))
+        case Term.Name("<") => Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Type("Int")), Signature.Method("<", "(I)I"))
+        case Term.Name(">") => Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Type("Int")), Signature.Method(">", "(I)I"))
+        case Term.Name("<=") => Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Type("Int")), Signature.Method("<=", "(I)I"))
+        case Term.Name(">=") => Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Type("Int")), Signature.Method(">=", "(I)I"))
         case Term.Name("==") => `Any==`
         case Term.Name("!=") => `Any!=`
       }

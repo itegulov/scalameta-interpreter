@@ -25,12 +25,39 @@ object Engine {
     case block: Block                    => evalBlock(block, env)
     case name: Term.Name                 => evalName(name, env)
     case ifTerm: Term.If                 => evalIf(ifTerm, env)
+    case whileTerm: Term.While           => evalWhile(whileTerm, env)
+    case doTerm: Term.Do                 => evalDoWhile(doTerm, env)
     case apply: Term.Apply               => evalApply(apply, env)
     case Term.ApplyInfix(lhs, op, _, xs) => evalApply(Term.Apply(Term.Select(lhs, op), xs), env)
     case assignment: Term.Assign         => evalAssignment(assignment, env)
     case newTerm: Term.New               => evalNew(newTerm, env)
     case select: Term.Select             => evalSelect(select, env)
     case template: Template              => evalTemplate(template, env)
+  }
+
+  def evalDoWhile(doTerm: Term.Do, env: Env)(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
+    val (_, env1) = eval(doTerm.body, env)
+    evalWhile(Term.While(doTerm.expr, doTerm.body), env1)
+  }
+
+  def evalWhile(whileTerm: Term.While, env: Env)(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
+    val (condRef, env1) = eval(whileTerm.expr, env)
+    val condRes = env1.heap(condRef)
+    condRes match {
+      case InterpreterPrimitive(value) => Try(value.asInstanceOf[Boolean]) match {
+        case Success(bool) =>
+          if (bool) {
+            val (_, env2) = eval(whileTerm.body, env1)
+            evalWhile(whileTerm, env2)
+          } else {
+            InterpreterRef.wrap((), env1, t"Unit")
+          }
+        case Failure(_) =>
+          sys.error(s"Expected boolean, but got $value")
+      }
+      case _ =>
+        sys.error(s"Expected boolean, but got $condRes")
+    }
   }
 
   def evalTemplate(template: Template, env: Env)(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
@@ -252,6 +279,10 @@ object Engine {
     case "-" => "subtract"
     case "*" => "multiply"
     case "/" => "divide"
+    case "<" => "testLessThan"
+    case ">" => "testGreaterThan"
+    case "<=" => "testLessOrEqualThan"
+    case ">=" => "testGreaterOrEqualThan"
     case x   => x
   }
 
