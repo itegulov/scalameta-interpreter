@@ -7,6 +7,11 @@ sealed trait ScalametaMirror
 case object ScalametaMirrorImpl extends ScalametaMirror
 
 object ScalametaMirror {
+  val AnyEquals = Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Type("Any")), Signature.Method("equals", "(Ljava/lang/Object;)Z"))
+  val AnyHashcode = Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Type("Any")), Signature.Method("hashCode", "()I"))
+  val `Any==` = Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Type("Any")), Signature.Method("==", "(I)Z"))
+  val `Any!=` = Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Type("Any")), Signature.Method("!=", "(I)Z"))
+
   private val emptySymbol = Symbol.Global(Symbol.None, Signature.Term("_empty_"))
   private val A = Symbol.Global(emptySymbol, Signature.Type("A"))
   private val B = Symbol.Global(emptySymbol, Signature.Type("B"))
@@ -45,6 +50,15 @@ object ScalametaMirror {
         case Term.Name("fooOAI") => Symbol.Global(A, Signature.Method("fooOAI", "(I)I"))
         // Predef
         case Term.Name("println") => Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Term("Predef")), Signature.Method("println", "(Ljava/lang/Object;)V"))
+        // Generic
+        case Term.Name("equals") => AnyEquals
+        case Term.Name("hashCode") => AnyHashcode
+        case Term.Name("+") => Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Type("Int")), Signature.Method("+", "(I)I"))
+        case Term.Name("-") => Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Type("Int")), Signature.Method("-", "(I)I"))
+        case Term.Name("*") => Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Type("Int")), Signature.Method("*", "(I)I"))
+        case Term.Name("/") => Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Type("Int")), Signature.Method("/", "(I)I"))
+        case Term.Name("==") => `Any==`
+        case Term.Name("!=") => `Any!=`
       }
     }
   }

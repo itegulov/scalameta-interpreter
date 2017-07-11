@@ -109,12 +109,32 @@ object Engine {
         env1.heap.get(qualRef) match {
           case Some(InterpreterPrimitive(value)) =>
             val argValues   = argRefs.map(env1.heap.apply).map(_.asInstanceOf[InterpreterPrimitive]).map(_.value)
-            val runtimeName = toRuntimeName(name.value)
-            val allFuns     = classOf[BoxesRunTime].getDeclaredMethods.filter(_.getName == runtimeName)
-            val fun         = allFuns.head
-            val result      = fun.invoke(null, (value +: argValues).asInstanceOf[Seq[AnyRef]]: _*)
-            val ref         = InterpreterJvmRef(null)
-            (ref, env.extend(ref, InterpreterPrimitive(result)))
+            name.symbol match {
+              case ScalametaMirror.AnyEquals => argValues match {
+                case Seq(arg) => InterpreterRef.wrap(value == arg, env1, t"Boolean")
+                case _ => sys.error(s"Expected one argument for equals(), but got $argValues")
+              }
+              case ScalametaMirror.AnyHashcode =>
+                if (argValues.nonEmpty) {
+                  sys.error(s"Expected no arguments for hashCode, but got $argValues")
+                }
+                InterpreterRef.wrap(value.hashCode(), env1, t"Int")
+              case ScalametaMirror.`Any==` => argValues match {
+                case Seq(arg) => InterpreterRef.wrap(value == arg, env1, t"Boolean")
+                case _ => sys.error(s"Expected one argument for ==, but got $argValues")
+              }
+              case ScalametaMirror.`Any!=` => argValues match {
+                case Seq(arg) => InterpreterRef.wrap(value != arg, env1, t"Boolean")
+                case _ => sys.error(s"Expected one argument for !=, but got $argValues")
+              }
+              case _ =>
+                val runtimeName = toRuntimeName(name.value)
+                val allFuns     = classOf[BoxesRunTime].getDeclaredMethods.filter(_.getName == runtimeName)
+                val fun         = allFuns.head
+                val result      = fun.invoke(null, (value +: argValues).asInstanceOf[Seq[AnyRef]]: _*)
+                val ref         = InterpreterJvmRef(null)
+                (ref, env.extend(ref, InterpreterPrimitive(result)))
+            }
           case Some(InterpreterObject(className, fields)) =>
             fields.get(name.symbol) match {
               case Some(ref) =>
