@@ -8,7 +8,7 @@ class ScalaObjectSpec extends ScalametaInterpreterSpec {
   it should "be able to create simple objects" in {
     checkCode(
       q"""
-         object A {
+         object OA {
          }
        """, (), Seq())
   }
@@ -16,20 +16,20 @@ class ScalaObjectSpec extends ScalametaInterpreterSpec {
   it should "be able to access object fields" in {
     checkCode(
       q"""
-         object A {
-           val x = 7
+         object OA {
+           val oax = 7
          }
-         A.x
+         OA.oax
        """, 7, Seq())
   }
 
   it should "be able to access object functions" in {
     checkCode(
       q"""
-         object A {
-           def foo(x: Int) = x * 7
+         object OA {
+           def fooOAI(x: Int) = x * 7
          }
-         A.foo(7)
+         OA.fooOAI(7)
        """, 49, Seq())
   }
 }

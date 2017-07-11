@@ -1,5 +1,7 @@
 package org.scalameta.interpreter.internal.environment
 
+import org.scalameta.interpreter.ScalametaMirror
+import org.scalameta.interpreter.ScalametaMirror._
 import org.scalameta.interpreter.internal.Engine
 
 import scala.meta._
@@ -13,20 +15,20 @@ case class InterpreterFunctionRef(
   tparams: Seq[Type.Param],
   body: Tree,
   capturedEnv: Env
-) extends InterpreterRef {
+)(implicit mirror: ScalametaMirror) extends InterpreterRef {
   def apply(argRefs: Seq[InterpreterRef], callSiteEnv: Env): (InterpreterRef, Env) = {
     val env1 = callSiteEnv.pushFrame(capturedEnv.stack.head)
     params match {
       case fParams :: Nil if fParams.size == argRefs.size =>
         val env2 = fParams
           .zip(argRefs)
-          .foldLeft(env1)((tmpEnv, argRef) => tmpEnv.extend(argRef._1.name.value, argRef._2))
+          .foldLeft(env1)((tmpEnv, argRef) => tmpEnv.extend(argRef._1.name.symbol, argRef._2))
         val (res, env3) = Engine.eval(body, env2)
         (res, callSiteEnv.extendHeap(env3.heap))
       case fParams :: fParamss if fParams.size == argRefs.size =>
         val env2 = fParams
           .zip(argRefs)
-          .foldLeft(env1)((tmpEnv, argRef) => tmpEnv.extend(argRef._1.name.value, argRef._2))
+          .foldLeft(env1)((tmpEnv, argRef) => tmpEnv.extend(argRef._1.name.symbol, argRef._2))
         (InterpreterFunctionRef(fParamss, tparams.tail, body, env2), callSiteEnv)
       case fParams :: _ =>
         sys.error(s"Expected ${fParams.size} arguments, but got ${argRefs.size}")
@@ -42,22 +44,22 @@ case class InterpreterFunctionRef(
 }
 
 case class InterpreterCtorRef(
-  className: ClassName,
+  className: Symbol,
   params: Seq[Seq[Term.Param]],
   tparams: Seq[Type.Param],
   body: Tree,
   capturedEnv: Env,
   parentConstructors: Seq[(InterpreterCtorRef, Seq[Term.Arg])]
-) extends InterpreterRef {
+)(implicit mirror: ScalametaMirror) extends InterpreterRef {
   def apply(argRefs: Seq[InterpreterRef], callSiteEnv: Env): (InterpreterRef, Env) = {
     val env1 = callSiteEnv.pushFrame(capturedEnv.stack.head)
     params match {
       case fParams :: Nil if fParams.size == argRefs.size =>
         val env2 = fParams
           .zip(argRefs)
-          .foldLeft(env1)((tmpEnv, argRef) => tmpEnv.extend(argRef._1.name.value, argRef._2))
+          .foldLeft(env1)((tmpEnv, argRef) => tmpEnv.extend(argRef._1.name.symbol, argRef._2))
         val parentObjectsAndEnvs = for ((parentConstructor, args) <- parentConstructors) yield {
-          val (ref, newEnv) = parentConstructor.apply(args.map(_.asInstanceOf[Term.Name].value).map(env2.stack.head.apply), env1)
+          val (ref, newEnv) = parentConstructor.apply(args.map(_.asInstanceOf[Term.Name].symbol).map(env2.stack.head.apply), env1)
           (newEnv.heap(ref).asInstanceOf[InterpreterObject], newEnv)
         }
         val (parentObjects, parentEnvs) = parentObjectsAndEnvs.unzip
@@ -75,7 +77,7 @@ case class InterpreterCtorRef(
         sys.error(s"Expected ${fParams.size} arguments for constructor, but got ${argRefs.size}")
       case Nil if argRefs.isEmpty =>
         val parentObjectsAndEnvs = for ((parentConstructor, args) <- parentConstructors) yield {
-          val (ref, newEnv) = parentConstructor.apply(args.map(_.asInstanceOf[Term.Name].value).map(env1.stack.head.apply), env1)
+          val (ref, newEnv) = parentConstructor.apply(args.map(_.asInstanceOf[Term.Name].symbol).map(env1.stack.head.apply), env1)
           (newEnv.heap(ref).asInstanceOf[InterpreterObject], newEnv)
         }
         val (parentObjects, parentEnvs) = parentObjectsAndEnvs.unzip

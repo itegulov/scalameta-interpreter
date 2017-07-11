@@ -2,6 +2,8 @@ package org.scalameta.interpreter.internal
 
 import org.scalameta.interpreter.internal.environment._
 import com.typesafe.scalalogging.Logger
+import org.scalameta.interpreter.ScalametaMirror
+import org.scalameta.interpreter.ScalametaMirror._
 
 import scala.collection.immutable
 import scala.collection.immutable.ListMap
@@ -13,10 +15,10 @@ import scala.util.{Failure, Success, Try}
 object Engine {
   private val logger = Logger[Engine.type]
 
-  def eval(tree: Tree): (InterpreterRef, Env) =
+  def eval(tree: Tree)(implicit mirror: ScalametaMirror): (InterpreterRef, Env) =
     eval(tree, Env(List(Map.empty), Map.empty, ClassTable(Map.empty), ListMap.empty))
 
-  def eval(tree: Tree, env: Env): (InterpreterRef, Env) = tree match {
+  def eval(tree: Tree, env: Env)(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = tree match {
     case literal: Lit                    => evalLiteral(literal, env)
     case definition: Defn                => evalLocalDef(definition, env)
     case declaration: Decl               => InterpreterRef.wrap((), env, t"Unit") // FIXME: should probably do something with them
@@ -31,7 +33,7 @@ object Engine {
     case template: Template              => evalTemplate(template, env)
   }
 
-  def evalTemplate(template: Template, env: Env): (InterpreterRef, Env) = {
+  def evalTemplate(template: Template, env: Env)(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
     var resEnv = env
     for (arg <- template.stats.getOrElse(Seq.empty)) {
       val (argRef, newEnv) = eval(arg, resEnv)
@@ -41,7 +43,7 @@ object Engine {
     InterpreterRef.wrap((), resEnv, t"Unit")
   }
 
-  def evalSelect(select: Term.Select, env: Env): (InterpreterRef, Env) = {
+  def evalSelect(select: Term.Select, env: Env)(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
     val (qualRef, env1) = eval(select.qual, env)
     env1.heap.get(qualRef) match {
       case Some(InterpreterPrimitive(value)) =>
@@ -52,40 +54,40 @@ object Engine {
         val ref    = InterpreterJvmRef(null)
         (ref, env.extend(ref, InterpreterPrimitive(result)))
       case Some(InterpreterObject(_, fields)) =>
-        fields.get(select.name.value) match {
+        fields.get(select.name.symbol) match {
           case Some(value) => (value, env1)
           case None        => sys.error(s"Unknown field ${select.name} for object $qualRef")
         }
     }
   }
 
-  def evalNew(newTerm: Term.New, env: Env): (InterpreterRef, Env) = {
+  def evalNew(newTerm: Term.New, env: Env)(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
     val ctorCall = newTerm.templ.parents.head // FIXME: Is it possible to have more than one ctor call?
     ctorCall match {
-      case Term.Apply(Ctor.Ref.Name(className), argTerms) =>
+      case Term.Apply(className, argTerms) =>
         var resEnv = env
         val argRefs = for (arg <- argTerms) yield {
           val (argRef, newEnv) = eval(arg, resEnv)
           resEnv = newEnv
           argRef
         }
-        resEnv.classTable.table.get(ClassName(className)) match {
+        resEnv.classTable.table.get(className.symbol) match {
           case Some(classInfo) => classInfo.constructor(argRefs, resEnv)
           case None            => sys.error(s"Unknown class $className")
         }
     }
   }
 
-  def evalAssignment(assignment: Term.Assign, env: Env): (InterpreterRef, Env) = {
+  def evalAssignment(assignment: Term.Assign, env: Env)(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
     val (assignmentRef, env1) = eval(assignment.rhs, env)
     assignment.lhs match {
-      case Term.Name(name) => InterpreterRef.wrap((), env1.extend(name, assignmentRef), t"Unit")
+      case name: Term.Name => InterpreterRef.wrap((), env1.extend(name.symbol, assignmentRef), t"Unit")
       case Term.Select(qual, name) =>
         val (ref, env2) = eval(qual, env1)
         env2.heap.get(ref) match {
           case Some(InterpreterPrimitive(value)) => sys.error("Can not mutate primitives")
-          case Some(obj @ InterpreterObject(_, fields)) if fields.contains(name.value) =>
-            val newObj = obj.extend(name.value, assignmentRef)
+          case Some(obj @ InterpreterObject(_, fields)) if fields.contains(name.symbol) =>
+            val newObj = obj.extend(name.symbol, assignmentRef)
             InterpreterRef.wrap((), env2.extend(ref, newObj), t"Unit")
           case Some(InterpreterObject(_, _)) => sys.error(s"Unknown field ${name.value} for $ref")
           case None                       => sys.error("Illegal state")
@@ -94,7 +96,7 @@ object Engine {
     }
   }
 
-  def evalApply(apply: Term.Apply, env: Env): (InterpreterRef, Env) = {
+  def evalApply(apply: Term.Apply, env: Env)(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
     var resEnv = env
     val argRefs = for (arg <- apply.args) yield {
       val (argRef, newEnv) = eval(arg, resEnv)
@@ -114,7 +116,7 @@ object Engine {
             val ref         = InterpreterJvmRef(null)
             (ref, env.extend(ref, InterpreterPrimitive(result)))
           case Some(InterpreterObject(className, fields)) =>
-            fields.get(name.value) match {
+            fields.get(name.symbol) match {
               case Some(ref) =>
                 Try(ref.asInstanceOf[InterpreterFunctionRef]) match {
                   case Success(fun) => fun(argRefs, env1.addThis(className, qualRef))
@@ -125,16 +127,33 @@ object Engine {
             }
           case _ => sys.error("Illegal state")
         }
-      case Term.Name(name) =>
-        resEnv.stack.head.get(name) match {
+      case name: Term.Name =>
+        resEnv.stack.head.get(name.symbol) match {
           case Some(funRef: InterpreterFunctionRef) => funRef(argRefs, resEnv)
           case Some(x)                              => sys.error(s"Expected function, but got $x")
-          case None                                 => sys.error(s"Unknown symbol $name")
+          case None                                 =>
+            import scala.reflect.runtime.{universe => ru}
+            val m = ru.runtimeMirror(Predef.getClass.getClassLoader)
+            val module = m.staticModule("scala.Predef")
+            val im = m.reflectModule(module)
+            val alternatives = im.symbol.info.decl(ru.TermName(name.value)).asTerm.alternatives.map(_.asMethod)
+            val method = alternatives.filter(_.paramLists.head.size == argRefs.size).head
+            val objScalametaMirror = m.reflect(im.instance)
+            val ref = InterpreterJvmRef(null)
+
+            val argsValues = argRefs.map(resEnv.heap.apply).map {
+              case InterpreterPrimitive(value) => value
+              case InterpreterObject(_, fields) => InterpreterDynamic(fields)
+              case InterpreterWrappedJvm(value) => value
+            }
+
+            val res = InterpreterWrappedJvm(objScalametaMirror.reflectMethod(method)(argsValues: _*))
+            (ref, resEnv.extend(ref, res))
         }
     }
   }
 
-  def evalIf(ifTerm: Term.If, env: Env): (InterpreterRef, Env) = {
+  def evalIf(ifTerm: Term.If, env: Env)(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
     val (condRef, env1) = eval(ifTerm.cond, env)
     val condEvaluation = env1.heap.get(condRef) match {
       case Some(result) =>
@@ -155,14 +174,14 @@ object Engine {
     }
   }
 
-  def evalName(name: Term.Name, env: Env): (InterpreterRef, Env) =
-    env.stack.head.get(name.value) match {
+  def evalName(name: Term.Name, env: Env)(implicit mirror: ScalametaMirror): (InterpreterRef, Env) =
+    env.stack.head.get(name.symbol) match {
       case Some(ref) =>
         (ref, env)
       case None      =>
         for ((_, classRef) <- env.thisContext) {
           val obj = env.heap(classRef).asInstanceOf[InterpreterObject]
-          obj.fields.get(name.value) match {
+          obj.fields.get(name.symbol) match {
             case Some(ref) => return (ref, env)
             case _ =>
           }
@@ -170,7 +189,7 @@ object Engine {
         sys.error(s"Unknown reference $name")
     }
 
-  def evalBlock(block: Block, env: Env): (InterpreterRef, Env) = {
+  def evalBlock(block: Block, env: Env)(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
     var result = InterpreterRef.wrap((), env, t"Unit")
     for (stat <- block.stats) {
       val (_, resEnv) = result
@@ -216,22 +235,18 @@ object Engine {
     case x   => x
   }
 
-  trait A {
-    val x = 7
-  }
-
-  def evalLocalDef(definition: Defn, env: Env): (InterpreterRef, Env) =
+  def evalLocalDef(definition: Defn, env: Env)(implicit mirror: ScalametaMirror): (InterpreterRef, Env) =
     definition match {
       case Defn.Val(mods, pats, _, rhs) =>
         val (res, env1) = eval(rhs, env)
         definition.parent match {
-          case Some(Template(_)) =>
+          case Some(Template(_, _, _, _)) =>
             val (_, ref) = env.thisContext.head
             var resObj = env1.heap(ref).asInstanceOf[InterpreterObject]
             for (pat <- pats) {
               pat match {
                 case Pat.Var.Term(termName) =>
-                  resObj = resObj.extend(termName.value, res)
+                  resObj = resObj.extend(termName.symbol, res)
               }
             }
             InterpreterRef.wrap((), env1.extend(ref, resObj), t"Unit")
@@ -240,7 +255,7 @@ object Engine {
             for (pat <- pats) {
               pat match {
                 case Pat.Var.Term(name) =>
-                  resEnv = resEnv.extend(name.value, res)
+                  resEnv = resEnv.extend(name.symbol, res)
               }
             }
             InterpreterRef.wrap((), resEnv, t"Unit")
@@ -252,13 +267,13 @@ object Engine {
           case (None, None)      => sys.error("Unreachable")
         }
         definition.parent match {
-          case Some(Template(_)) =>
+          case Some(Template(_, _, _, _)) =>
             val (_, ref) = env.thisContext.head
             var resObj = env1.heap(ref).asInstanceOf[InterpreterObject]
             for (pat <- pats) {
               pat match {
                 case Pat.Var.Term(termName) =>
-                  resObj = resObj.extend(termName.value, res)
+                  resObj = resObj.extend(termName.symbol, res)
               }
             }
             InterpreterRef.wrap((), env1.extend(ref, resObj), t"Unit")
@@ -267,22 +282,22 @@ object Engine {
             for (pat <- pats) {
               pat match {
                 case Pat.Var.Term(name) =>
-                  resEnv = resEnv.extend(name.value, res)
+                  resEnv = resEnv.extend(name.symbol, res)
               }
             }
             InterpreterRef.wrap((), resEnv, t"Unit")
         }
       case Defn.Def(mods, name, tparams, paramss, tpe, body) =>
         definition.parent match {
-          case Some(Template(_)) =>
+          case Some(Template(_, _, _, _)) =>
             val (_, ref) = env.thisContext.head
             val obj = env.heap(ref).asInstanceOf[InterpreterObject]
             val funRef = InterpreterFunctionRef(paramss, tparams, body, env)
-            val newObj = obj.extend(name.value, funRef)
-            InterpreterRef.wrap((), env.extend(name.value, funRef).extend(ref, newObj), t"Unit")
+            val newObj = obj.extend(name.symbol, funRef)
+            InterpreterRef.wrap((), env.extend(name.symbol, funRef).extend(ref, newObj), t"Unit")
           case _ =>
             val funRef = InterpreterFunctionRef(paramss, tparams, body, env)
-            InterpreterRef.wrap((), env.extend(name.value, funRef), t"Unit")
+            InterpreterRef.wrap((), env.extend(name.symbol, funRef), t"Unit")
         }
       case Defn.Trait(mods, name, tparams, ctor, templ) =>
         require(ctor.paramss.isEmpty, "Trait constructor should not have any parameters")
@@ -290,37 +305,37 @@ object Engine {
       case Defn.Class(mods, name, tparams, ctor, templ) =>
         val constructors = for (parent <- templ.parents) yield {
           parent match {
-            case Term.Apply(Ctor.Ref.Name(className), args) =>
-              env.classTable.table.get(ClassName(className)) match {
+            case Term.Apply(className, args) =>
+              env.classTable.table.get(className.symbol) match {
                 case Some(classInfo) => (classInfo.constructor, args)
                 case None            => sys.error(s"Unknown parent class: $className")
               }
-            case Ctor.Ref.Name(className) =>
-              env.classTable.table.get(ClassName(className)) match {
+            case className: Ctor.Ref.Name =>
+              env.classTable.table.get(className.symbol) match {
                 case Some(classInfo) => (classInfo.constructor, Seq.empty)
                 case None            => sys.error(s"Unknown parent class: $className")
               }
           }
         }
         val ctorRef = InterpreterCtorRef(
-          ClassName(name.value),
+          name.symbol,
           ctor.paramss,
           null,
           templ,
           env,
           constructors
         )
-        val resEnv = env.addClass(ClassName(name.value), ClassInfo(ctorRef))
+        val resEnv = env.addClass(name.symbol, ClassInfo(ctorRef))
         InterpreterRef.wrap((), resEnv, t"Unit")
       case Defn.Macro(mods, name, tparams, paramss, decltpe, body) =>
         sys.error("Macroses are not supported")
       case Defn.Object(mods, name, templ) =>
         val (_, env1) =
           eval(Block(templ.stats.getOrElse(immutable.Seq.empty)), env.pushFrame(Map.empty))
-        val obj    = InterpreterObject(ClassName(name.value), env1.stack.head)
+        val obj    = InterpreterObject(name.symbol, env1.stack.head)
         val ref    = InterpreterJvmRef(Type.Name(name.value))
         val resEnv = Env(env1.stack.tail, env1.heap + (ref -> obj), env1.classTable, env1.thisContext)
-        InterpreterRef.wrap((), resEnv.extend(name.value, ref), t"Unit")
+        InterpreterRef.wrap((), resEnv.extend(name.symbol, ref), t"Unit")
       case Defn.Type(mods, name, tparams, body) =>
         logger.info("Ignoring type alias definition")
         InterpreterRef.wrap((), env, t"Unit")

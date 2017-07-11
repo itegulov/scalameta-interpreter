@@ -1,7 +1,7 @@
 package org.scalameta.interpreter.internal.environment
 
-case class ClassName(name: String) extends AnyVal
+import scala.meta._
 
 case class ClassInfo(constructor: InterpreterCtorRef)
 
-case class ClassTable(table: Map[ClassName, ClassInfo])
+case class ClassTable(table: Map[Symbol, ClassInfo])
