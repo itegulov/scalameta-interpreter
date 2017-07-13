@@ -4,6 +4,7 @@ import org.scalameta.interpreter.internal.environment._
 import com.typesafe.scalalogging.Logger
 import org.scalameta.interpreter.ScalametaMirror
 import org.scalameta.interpreter.ScalametaMirror._
+import org.scalameta.interpreter.internal.flow.exceptions.ReturnException
 
 import scala.collection.immutable
 import scala.collection.immutable.ListMap
@@ -33,6 +34,12 @@ object Engine {
     case newTerm: Term.New               => evalNew(newTerm, env)
     case select: Term.Select             => evalSelect(select, env)
     case template: Template              => evalTemplate(template, env)
+    case returnTerm: Term.Return         => evalReturn(returnTerm, env)
+  }
+
+  def evalReturn(value: Term.Return, env: Env)(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
+    val (retRef, retEnv) = eval(value.expr, env)
+    throw ReturnException(retRef, retEnv)
   }
 
   def evalDoWhile(doTerm: Term.Do, env: Env)(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
@@ -166,7 +173,12 @@ object Engine {
             fields.get(name.symbol) match {
               case Some(ref) =>
                 Try(ref.asInstanceOf[InterpreterFunctionRef]) match {
-                  case Success(fun) => fun(argRefs, env1.addThis(className, qualRef))
+                  case Success(fun) =>
+                    try {
+                      fun(argRefs, env1.addThis(className, qualRef))
+                    } catch {
+                      case ReturnException(retRef, retEnv) => (retRef, retEnv)
+                    }
                   case Failure(_) =>
                     sys.error(s"Tried to call ${name.value}, but it is not a function")
                 }
@@ -176,8 +188,14 @@ object Engine {
         }
       case name: Term.Name =>
         resEnv.stack.head.get(name.symbol) match {
-          case Some(funRef: InterpreterFunctionRef) => funRef(argRefs, resEnv)
-          case Some(x)                              => sys.error(s"Expected function, but got $x")
+          case Some(funRef: InterpreterFunctionRef) =>
+            try {
+              funRef(argRefs, resEnv)
+            } catch {
+              case ReturnException(retRef, retEnv) => (retRef, retEnv)
+            }
+          case Some(x)                              =>
+            sys.error(s"Expected function, but got $x")
           case None                                 =>
             import scala.reflect.runtime.{universe => ru}
             val m = ru.runtimeMirror(Predef.getClass.getClassLoader)

@@ -26,6 +26,8 @@ object ScalametaMirror {
         case Term.Name("z") => Symbol.Local("z")
         case Term.Name("fooS") => Symbol.Global(A, Signature.Method("fooS", "(Ljava/lang/String;)Ljava/lang/String;"))
         case Term.Name("fooI") => Symbol.Global(A, Signature.Method("fooI", "(I)I"))
+        case Term.Name("barS") => Symbol.Global(A, Signature.Method("barS", "(Ljava/lang/String;)Ljava/lang/String;"))
+        case Term.Name("barI") => Symbol.Global(A, Signature.Method("barI", "(I)I"))
         // A
         case Type.Name("A") => A
         // case Ctor.Ref.Name("A") => Symbol.Global(A, Signature.Method("<init>", "(ID)V"))
