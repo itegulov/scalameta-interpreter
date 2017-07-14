@@ -51,6 +51,8 @@ object ScalametaMirror {
         case Term.Name("oax") => Symbol.Global(OA, Signature.Term("oax"))
         case Term.Name("fooOAI") => Symbol.Global(A, Signature.Method("fooOAI", "(I)I"))
         // Predef
+        case Type.Name("Double") => Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Type("Double"))
+        case Type.Name("Int") => Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Type("Int"))
         case Term.Name("println") => Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Term("Predef")), Signature.Method("println", "(Ljava/lang/Object;)V"))
         // Generic
         case Term.Name("equals") => AnyEquals

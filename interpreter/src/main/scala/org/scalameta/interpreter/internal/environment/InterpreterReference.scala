@@ -7,6 +7,41 @@ import org.scalameta.interpreter.internal.Engine
 import scala.meta._
 
 sealed trait InterpreterRef {
+  def extract(env: Env): InterpreterValue =
+    env.heap.get(this) match {
+      case Some(value) => value
+      case None        => sys.error("Illegal state")
+    }
+
+  def reify(env: Env): Any =
+    env.heap.get(this) match {
+      case Some(InterpreterPrimitive(value))  => value
+      case Some(InterpreterWrappedJvm(value)) => value
+      case Some(InterpreterObject(_, fields)) => InterpreterDynamic(fields)
+      case None                               => sys.error("Illegal state")
+    }
+
+  def reifyJvm(env: Env): Any =
+    env.heap.get(this) match {
+      case Some(InterpreterWrappedJvm(value)) => value
+      case Some(other)                        => sys.error(s"$other is not a JVM wrapped value")
+      case None                               => sys.error("Illegal state")
+    }
+
+  def reifyPrimitive(env: Env): Any =
+    env.heap.get(this) match {
+      case Some(InterpreterPrimitive(prim)) => prim
+      case Some(other)                      => sys.error(s"$other is not a primitive")
+      case None                             => sys.error("Illegal state")
+    }
+
+  def reifyBoolean(env: Env): Boolean =
+    reifyPrimitive(env) match {
+      case true  => true
+      case false => false
+      case other => sys.error(s"Tried to reify $other as a boolean")
+    }
+
   def tpe: Type
 }
 

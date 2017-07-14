@@ -4,7 +4,7 @@ import org.scalameta.interpreter.internal.environment._
 import com.typesafe.scalalogging.Logger
 import org.scalameta.interpreter.ScalametaMirror
 import org.scalameta.interpreter.ScalametaMirror._
-import org.scalameta.interpreter.internal.flow.exceptions.ReturnException
+import org.scalameta.interpreter.internal.flow.exceptions.{InterpreterException, ReturnException}
 
 import scala.collection.immutable
 import scala.collection.immutable.ListMap
@@ -35,10 +35,158 @@ object Engine {
     case select: Term.Select             => evalSelect(select, env)
     case template: Template              => evalTemplate(template, env)
     case returnTerm: Term.Return         => evalReturn(returnTerm, env)
+    case throwTerm: Term.Throw           => evalThrow(throwTerm, env)
+    case tryCatchTerm: Term.TryWithTerm  => ??? // TODO: find out what is try with term
+    case tryCatchTerm: Term.TryWithCases => evalTry(tryCatchTerm, env)
+    case termMatch: Term.Match           => evalMatch(termMatch, env)
+    case tuple: Term.Tuple               => evalTuple(tuple, env)
   }
 
-  def evalReturn(value: Term.Return, env: Env)(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
-    val (retRef, retEnv) = eval(value.expr, env)
+  def evalTuple(tupleTerm: Term.Tuple, env: Env)(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
+    var resEnv = env
+    val values = for (expr <- tupleTerm.args) yield {
+      val (ref, newEnv) = eval(expr, resEnv)
+      resEnv = newEnv
+      ref.reify(resEnv)
+    }
+    val tuple = values match {
+      case Seq(t1) => Tuple1(t1)
+      case Seq(t1, t2) => Tuple2(t1, t2)
+      // TODO: code generate other cases as well
+    }
+    val ref = InterpreterJvmRef(null)
+    (ref, resEnv.extend(ref, InterpreterWrappedJvm(tuple)))
+  }
+
+  def evalPatterns(
+    toMatch: Seq[Any],
+    patterns: Seq[Pat],
+    env: Env
+  )(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
+    var resEnv = env
+    for ((value, pattern) <- toMatch.zip(patterns)) {
+      val wrappedValue = InterpreterWrappedJvm(value) // FIXME: find intrpreter ref by value
+      val valueRef = InterpreterJvmRef(null)
+      resEnv = resEnv.extend(valueRef, wrappedValue)
+      val (patRef, patEnv) = evalPattern(valueRef, pattern, resEnv)
+      resEnv = patEnv
+      if (!patRef.reifyBoolean(resEnv)) {
+        return InterpreterRef.wrap(false, env, t"Boolean")
+      }
+    }
+    InterpreterRef.wrap(true, resEnv, t"Boolean")
+  }
+
+  def evalPattern(
+    toMatch: InterpreterRef,
+    pat: Pat,
+    env: Env
+  )(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
+    pat match {
+      case Pat.Alternative(lhs, rhs) =>
+        val (patRef, patEnv) = evalPattern(toMatch, lhs, env)
+        if (patRef.reifyBoolean(patEnv)) {
+          (patRef, patEnv)
+        } else {
+          evalPattern(toMatch, rhs, env)
+        }
+      case Pat.Bind(lhs, rhs) =>
+        val (patRef, patEnv) = evalPattern(toMatch, lhs, env)
+        if (patRef.reifyBoolean(patEnv)) {
+          (patRef, patEnv.extend(lhs.name.symbol, toMatch))
+        } else {
+          InterpreterRef.wrap(false, patEnv, t"Boolean")
+        }
+      case Pat.Extract(termRef, targs, args) =>
+        ???
+      case Pat.ExtractInfix(lhs, op, rhs) =>
+        ???
+      case Pat.Interpolate(prefix, parts, args) =>
+        ???
+      case literal: Lit =>
+        val (litRef, litEnv) = evalLiteral(literal, env)
+        InterpreterRef.wrap(
+          litRef.reifyPrimitive(litEnv) == toMatch.reify(litEnv),
+          litEnv,
+          t"Boolean"
+        )
+      case name: Term.Name =>
+        InterpreterRef.wrap(true, env.extend(name.symbol, toMatch), t"Boolean")
+      case Term.Select(qual, name) =>
+        ???
+      case Pat.Var.Term(name) =>
+        InterpreterRef.wrap(true, env.extend(name.symbol, toMatch), t"Boolean")
+      case Pat.Tuple(args) =>
+        Try(toMatch.reifyJvm(env)) match {
+          case Failure(_) => InterpreterRef.wrap(false, env, t"Boolean")
+          case Success(Tuple1(t1)) if args.size == 1 => evalPatterns(Seq(t1), args, env)
+          case Success(Tuple2(t1, t2)) if args.size == 2 => evalPatterns(Seq(t1, t2), args, env)
+          // TODO: code generate other cases as well
+        }
+      case Pat.Typed(lhs, rhs) =>
+        val (resRef, resEnv) = evalPattern(toMatch, lhs, env)
+        if (resRef.reifyBoolean(resEnv)) {
+          toMatch.extract(resEnv) match {
+            case InterpreterPrimitive(value) =>
+              val classLoader = getClass.getClassLoader
+              val clazz = classLoader.loadClass(toRuntimeClass(rhs.tpe.symbol.syntax.init.substring("_root_.".length)))
+              InterpreterRef.wrap(clazz.isInstance(value), env, t"Boolean")
+            case InterpreterWrappedJvm(value) =>
+              val classLoader = getClass.getClassLoader
+              val clazz = classLoader.loadClass(toRuntimeClass(rhs.tpe.symbol.syntax.init.substring("_root_.".length)))
+              InterpreterRef.wrap(clazz.isInstance(value), env, t"Boolean")
+            case InterpreterObject(classSymbol, fields) =>
+              // TODO: check subtyping instead of equality
+              InterpreterRef.wrap(classSymbol == rhs.tpe.symbol, env, t"Boolean")
+          }
+        } else {
+          (resRef, resEnv)
+        }
+      case Pat.Wildcard() =>
+        InterpreterRef.wrap(true, env, t"Boolean")
+    }
+  }
+
+  def evalMatch(toMatchRef: InterpreterRef, termCases: Seq[Case], env: Env)(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
+    for (termCase <- termCases) {
+      val (evalRef, evalEnv) = evalPattern(toMatchRef, termCase.pat, env)
+      if (evalRef.reifyBoolean(evalEnv)) {
+        val (guardVal, guardEnv) = termCase.cond match {
+          case Some(cond) =>
+            val (condRef, condEnv) = eval(cond, evalEnv)
+            (condRef.reifyBoolean(condEnv), condEnv)
+          case None =>
+            (true, evalEnv)
+        }
+        if (guardVal) {
+          return eval(termCase.body, guardEnv)
+        }
+      }
+    }
+    sys.error("Match error")
+  }
+
+  def evalMatch(termMatch: Term.Match, env: Env)(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
+    val (toMatchRef, env1) = eval(termMatch.expr, env)
+    evalMatch(toMatchRef, termMatch.cases, env1)
+  }
+
+  def evalTry(tryCatchTerm: Term.TryWithCases, env: Env)(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
+    try {
+      eval(tryCatchTerm.expr, env)
+    } catch {
+      case InterpreterException(exceptionRef, exceptionEnv) =>
+        evalMatch(exceptionRef, tryCatchTerm.catchp, exceptionEnv)
+    }
+  }
+
+  def evalThrow(throwTerm: Term.Throw, env: Env)(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
+    val (throwRef, throwEnv) = eval(throwTerm.expr, env)
+    throw InterpreterException(throwRef, throwEnv)
+  }
+
+  def evalReturn(returnTerm: Term.Return, env: Env)(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
+    val (retRef, retEnv) = eval(returnTerm.expr, env)
     throw ReturnException(retRef, retEnv)
   }
 
@@ -302,6 +450,12 @@ object Engine {
     case "<=" => "testLessOrEqualThan"
     case ">=" => "testGreaterOrEqualThan"
     case x   => x
+  }
+
+  def toRuntimeClass(name: String): String = name match {
+    case "scala.Int"    => "java.lang.Integer"
+    case "scala.Double" => "java.lang.Double"
+    case x              => x
   }
 
   def evalLocalDef(definition: Defn, env: Env)(implicit mirror: ScalametaMirror): (InterpreterRef, Env) =
