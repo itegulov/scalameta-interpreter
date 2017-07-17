@@ -6,7 +6,7 @@ import org.scalameta.interpreter.internal.environment.InterpreterWrappedJvm
 import scala.meta._
 
 class ScalaPredefSpec extends ScalametaInterpreterSpec {
-  it should "be able to call predef classes" in {
+  it should "be able to call predef functions" in {
     checkCode(
       q"""
          println("test")
