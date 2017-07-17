@@ -8,6 +8,7 @@ import org.scalameta.interpreter.internal.flow.exceptions.{InterpreterException,
 
 import scala.collection.immutable
 import scala.collection.immutable.ListMap
+import scala.collection.mutable.ArrayBuffer
 import scala.meta.Term.Block
 import scala.meta._
 import scala.runtime.BoxesRunTime
@@ -24,22 +25,135 @@ object Engine {
     case definition: Defn                => evalLocalDef(definition, env)
     case declaration: Decl               => InterpreterRef.wrap((), env, t"Unit") // FIXME: should probably do something with them
     case block: Block                    => evalBlock(block, env)
+    case template: Template              => evalTemplate(template, env)
     case name: Term.Name                 => evalName(name, env)
-    case ifTerm: Term.If                 => evalIf(ifTerm, env)
-    case whileTerm: Term.While           => evalWhile(whileTerm, env)
-    case doTerm: Term.Do                 => evalDoWhile(doTerm, env)
+    case term: Term                      => evalTerm(term, env)
+  }
+
+  def evalTerm(term: Term, env: Env)(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = term match {
     case apply: Term.Apply               => evalApply(apply, env)
     case Term.ApplyInfix(lhs, op, _, xs) => evalApply(Term.Apply(Term.Select(lhs, op), xs), env)
+    case applyType: Term.ApplyType       => ???
+    case ascribe: Term.Ascribe           => evalAscribe(ascribe, env)
     case assignment: Term.Assign         => evalAssignment(assignment, env)
+    case doTerm: Term.Do                 => evalDoWhile(doTerm, env)
+    case eta: Term.Eta                   => ???
+    case forTerm: Term.For               => evalFor(forTerm, env)
+    case forTerm: Term.ForYield          => evalForYield(forTerm, env)
+    case function: Term.Function         => ???
+    case ifTerm: Term.If                 => evalIf(ifTerm, env)
+    case interpolate: Term.Interpolate   => ???
+    case termMatch: Term.Match           => evalMatch(termMatch, env)
     case newTerm: Term.New               => evalNew(newTerm, env)
-    case select: Term.Select             => evalSelect(select, env)
-    case template: Template              => evalTemplate(template, env)
+    case function: Term.PartialFunction  => ???
+    case placeholder: Term.Placeholder   => ???
     case returnTerm: Term.Return         => evalReturn(returnTerm, env)
     case throwTerm: Term.Throw           => evalThrow(throwTerm, env)
-    case tryCatchTerm: Term.TryWithTerm  => ??? // TODO: find out what is try with term
     case tryCatchTerm: Term.TryWithCases => evalTry(tryCatchTerm, env)
-    case termMatch: Term.Match           => evalMatch(termMatch, env)
+    case tryCatchTerm: Term.TryWithTerm  => ??? // TODO: find out what is try with term
     case tuple: Term.Tuple               => evalTuple(tuple, env)
+    case update: Term.Update             => ???
+    case whileTerm: Term.While           => evalWhile(whileTerm, env)
+    case select: Term.Select             => evalSelect(select, env)
+    case xml: Term.Xml                   => ???
+  }
+
+  def evalForYield(forTerm: Term.ForYield, env: Env)(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
+
+    case object NoValue
+
+    def evalForYieldRec(enums: Seq[Enumerator], lEnv: Env): (InterpreterRef, Env) = {
+      enums match {
+        case Enumerator.Generator(pat, rhs) :: tail =>
+          val (rhsRef, rhsEnv) = eval(rhs, lEnv)
+          val iterableRhs = rhsRef.reify(rhsEnv).asInstanceOf[Iterable[_]]
+          pat match {
+            case Pat.Var.Term(name) =>
+              var resEnv = rhsEnv
+              val result = ArrayBuffer.empty[Any]
+              for (oneRhs <- iterableRhs) {
+                val oneRhsRef = InterpreterJvmRef(null)
+                resEnv = resEnv.extend(oneRhsRef, InterpreterWrappedJvm(oneRhs))
+                val (newRef, newEnv) = evalForYieldRec(tail, resEnv)
+                resEnv = newEnv
+                val newVal = newRef.reify(newEnv)
+                if (newVal != NoValue) {
+                  newVal match {
+                    case iterable: Iterable[_] => result ++= iterable
+                    case other                 => result += other
+                  }
+                }
+              }
+              InterpreterRef.wrapJvm(result, resEnv, t"Unit")
+          }
+        case Enumerator.Guard(cond) :: tail =>
+          val (condRef, condEnv) = eval(cond, lEnv)
+          if (condRef.reifyBoolean(condEnv)) {
+            evalForYieldRec(tail, condEnv)
+          } else {
+            InterpreterRef.wrapJvm(NoValue, condEnv, null)
+          }
+        case Enumerator.Val(pat, rhs) :: tail =>
+          val (rhsRef, rhsEnv) = eval(rhs, lEnv)
+          pat match {
+            case Pat.Var.Term(name) =>
+              evalForYieldRec(tail, rhsEnv.extend(name.symbol, rhsRef))
+          }
+        case Nil =>
+          val (_, newEnv) = eval(forTerm.body, lEnv)
+          InterpreterRef.wrap((), newEnv, t"Unit")
+      }
+    }
+    evalForYieldRec(forTerm.enums, env)
+  }
+
+  def evalFor(forTerm: Term.For, env: Env)(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
+    def evalForRec(enums: Seq[Enumerator], lEnv: Env): (InterpreterRef, Env) = {
+      enums match {
+        case Enumerator.Generator(pat, rhs) :: tail =>
+          val (rhsRef, rhsEnv) = eval(rhs, lEnv)
+          val iterableRhs = rhsRef.reify(rhsEnv).asInstanceOf[Iterable[_]]
+          pat match {
+            case Pat.Var.Term(name) =>
+              var resEnv = rhsEnv
+              for (oneRhs <- iterableRhs) {
+                val oneRhsRef = InterpreterJvmRef(null)
+                resEnv = resEnv.extend(oneRhsRef, InterpreterWrappedJvm(oneRhs))
+                val (_, newEnv) = evalForRec(tail, resEnv)
+                resEnv = newEnv
+              }
+              InterpreterRef.wrap((), resEnv, t"Unit")
+          }
+        case Enumerator.Guard(cond) :: tail =>
+          val (condRef, condEnv) = eval(cond, lEnv)
+          if (condRef.reifyBoolean(condEnv)) {
+            evalForRec(tail, condEnv)
+          } else {
+            InterpreterRef.wrap((), condEnv, t"Unit")
+          }
+        case Enumerator.Val(pat, rhs) :: tail =>
+          val (rhsRef, rhsEnv) = eval(rhs, lEnv)
+          pat match {
+            case Pat.Var.Term(name) =>
+              evalForRec(tail, rhsEnv.extend(name.symbol, rhsRef))
+          }
+        case Nil =>
+          val (_, newEnv) = eval(forTerm.body, lEnv)
+          InterpreterRef.wrap((), newEnv, t"Unit")
+      }
+    }
+    evalForRec(forTerm.enums, env)
+  }
+
+  def evalAscribe(ascribe: Term.Ascribe, env: Env)(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
+    val (ref, newEnv) = eval(ascribe.expr, env)
+    val value = ref.reify(newEnv)
+    val classLoader = getClass.getClassLoader
+    val clazz = classLoader.loadClass(toRuntimeClass(ascribe.tpe.symbol.syntax.init.substring("_root_.".length)))
+    if (!clazz.isInstance(value)) {
+      sys.error(s"Expected value of type ${ascribe.tpe}, but got $value")
+    }
+    (ref, newEnv)
   }
 
   def evalTuple(tupleTerm: Term.Tuple, env: Env)(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {

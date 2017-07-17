@@ -143,4 +143,9 @@ object InterpreterRef {
     val ref = InterpreterJvmRef(tpe)
     (ref, env.extend(ref, InterpreterPrimitive(value)))
   }
+
+  def wrapJvm[T](value: T, env: Env, tpe: Type): (InterpreterRef, Env) = {
+    val ref = InterpreterJvmRef(tpe)
+    (ref, env.extend(ref, InterpreterWrappedJvm(value)))
+  }
 }
