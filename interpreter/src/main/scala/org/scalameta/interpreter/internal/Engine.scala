@@ -9,7 +9,6 @@ import org.scalameta.interpreter.internal.flow.exceptions.{InterpreterException,
 import scala.collection.immutable
 import scala.collection.immutable.ListMap
 import scala.collection.mutable.ArrayBuffer
-import scala.meta.Term.Block
 import scala.meta._
 import scala.runtime.BoxesRunTime
 import scala.util.{Failure, Success, Try}
@@ -24,8 +23,8 @@ object Engine {
     case literal: Lit                    => evalLiteral(literal, env)
     case definition: Defn                => evalLocalDef(definition, env)
     case declaration: Decl               => InterpreterRef.wrap((), env, t"Unit") // FIXME: should probably do something with them
-    case block: Block                    => evalBlock(block, env)
     case template: Template              => evalTemplate(template, env)
+    case block: Term.Block               => evalBlock(block, env)
     case name: Term.Name                 => evalName(name, env)
     case term: Term                      => evalTerm(term, env)
   }
@@ -45,7 +44,7 @@ object Engine {
     case interpolate: Term.Interpolate   => ???
     case termMatch: Term.Match           => evalMatch(termMatch, env)
     case newTerm: Term.New               => evalNew(newTerm, env)
-    case function: Term.PartialFunction  => ???
+    case function: Term.PartialFunction  => evalPartialFunction(function, env)
     case placeholder: Term.Placeholder   => ???
     case returnTerm: Term.Return         => evalReturn(returnTerm, env)
     case throwTerm: Term.Throw           => evalThrow(throwTerm, env)
@@ -56,6 +55,14 @@ object Engine {
     case whileTerm: Term.While           => evalWhile(whileTerm, env)
     case select: Term.Select             => evalSelect(select, env)
     case xml: Term.Xml                   => ???
+  }
+
+  def evalPartialFunction(partialFunction: Term.PartialFunction, env: Env)(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
+    // TODO: replace this temporal name hack
+    val x = Term.Name("__interpreterMatchX__")
+    val xParam = Term.Param(immutable.Seq.empty[Mod], x, None, None)
+    val termMatch = Term.Match(x, partialFunction.cases)
+    (InterpreterFunctionRef(Seq(Seq(xParam)), null, termMatch, env), env)
   }
 
   def evalFunction(function: Term.Function, env: Env)(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
@@ -520,7 +527,7 @@ object Engine {
         sys.error(s"Unknown reference $name")
     }
 
-  def evalBlock(block: Block, env: Env)(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
+  def evalBlock(block: Term.Block, env: Env)(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
     var result = InterpreterRef.wrap((), env, t"Unit")
     for (stat <- block.stats) {
       val (_, resEnv) = result
@@ -672,7 +679,7 @@ object Engine {
         sys.error("Macroses are not supported")
       case Defn.Object(mods, name, templ) =>
         val (_, env1) =
-          eval(Block(templ.stats.getOrElse(immutable.Seq.empty)), env.pushFrame(Map.empty))
+          eval(Term.Block(templ.stats.getOrElse(immutable.Seq.empty)), env.pushFrame(Map.empty))
         val obj    = InterpreterObject(name.symbol, env1.stack.head)
         val ref    = InterpreterJvmRef(Type.Name(name.value))
         val resEnv = Env(env1.stack.tail, env1.heap + (ref -> obj), env1.classTable, env1.thisContext)
