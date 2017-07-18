@@ -40,7 +40,7 @@ object Engine {
     case eta: Term.Eta                   => ???
     case forTerm: Term.For               => evalFor(forTerm, env)
     case forTerm: Term.ForYield          => evalForYield(forTerm, env)
-    case function: Term.Function         => ???
+    case function: Term.Function         => evalFunction(function, env)
     case ifTerm: Term.If                 => evalIf(ifTerm, env)
     case interpolate: Term.Interpolate   => ???
     case termMatch: Term.Match           => evalMatch(termMatch, env)
@@ -56,6 +56,10 @@ object Engine {
     case whileTerm: Term.While           => evalWhile(whileTerm, env)
     case select: Term.Select             => evalSelect(select, env)
     case xml: Term.Xml                   => ???
+  }
+
+  def evalFunction(function: Term.Function, env: Env)(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
+    (InterpreterFunctionRef(Seq(function.params), null, function.body, env), env)
   }
 
   def evalForYield(forTerm: Term.ForYield, env: Env)(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
