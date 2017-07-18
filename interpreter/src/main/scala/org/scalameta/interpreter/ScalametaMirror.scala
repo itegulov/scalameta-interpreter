@@ -18,7 +18,7 @@ object ScalametaMirror {
   private val B = Symbol.Global(emptySymbol, Signature.Type("B"))
   private val OA = Symbol.Global(emptySymbol, Signature.Term("OA"))
 
-  implicit class ScalametaSymbol(tree: Tree) {
+  implicit class ScalametaSymbol(tree: Tree)(implicit mirror: ScalametaMirror) {
     def symbol: Symbol = {
       tree match {
         // Local
