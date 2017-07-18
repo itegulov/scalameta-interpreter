@@ -4,6 +4,7 @@ import org.scalameta.interpreter.ScalametaMirror
 import org.scalameta.interpreter.ScalametaMirror._
 import org.scalameta.interpreter.internal.Engine
 
+import scala.collection.immutable
 import scala.meta._
 
 sealed trait InterpreterRef {
@@ -45,12 +46,16 @@ sealed trait InterpreterRef {
   def tpe: Type
 }
 
-case class InterpreterFunctionRef(
-  params: Seq[Seq[Term.Param]],
-  tparams: Seq[Type.Param],
-  body: Tree,
+abstract class InterpreterFunctionRef extends InterpreterRef {
+  def apply(argRefs: Seq[InterpreterRef], callSiteEnv: Env): (InterpreterRef, Env)
+}
+
+final case class InterpreterDefinedFunctionRef(
+  params: immutable.Seq[immutable.Seq[Term.Param]],
+  tparams: immutable.Seq[Type.Param],
+  body: Term,
   capturedEnv: Env
-)(implicit mirror: ScalametaMirror) extends InterpreterRef {
+)(implicit mirror: ScalametaMirror) extends InterpreterFunctionRef {
   def apply(argRefs: Seq[InterpreterRef], callSiteEnv: Env): (InterpreterRef, Env) = {
     val env1 = callSiteEnv.pushFrame(capturedEnv.stack.head)
     params match {
@@ -64,7 +69,7 @@ case class InterpreterFunctionRef(
         val env2 = fParams
           .zip(argRefs)
           .foldLeft(env1)((tmpEnv, argRef) => tmpEnv.extend(argRef._1.name.symbol, argRef._2))
-        (InterpreterFunctionRef(fParamss, tparams.tail, body, env2), callSiteEnv)
+        (InterpreterDefinedFunctionRef(fParamss, tparams.tail, body, env2), callSiteEnv)
       case fParams :: _ =>
         sys.error(s"Expected ${fParams.size} arguments, but got ${argRefs.size}")
       case Nil if argRefs.isEmpty =>
@@ -78,7 +83,11 @@ case class InterpreterFunctionRef(
   override def tpe: Type = ???
 }
 
-case class InterpreterCtorRef(
+abstract class InterpreterNativeFunctionRef extends InterpreterFunctionRef {
+  override def tpe: Type = ???
+}
+
+final case class InterpreterCtorRef(
   className: Symbol,
   params: Seq[Seq[Term.Param]],
   tparams: Seq[Type.Param],

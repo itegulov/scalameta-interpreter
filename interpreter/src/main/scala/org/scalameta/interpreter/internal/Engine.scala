@@ -37,7 +37,7 @@ object Engine {
     case ascribe: Term.Ascribe           => evalAscribe(ascribe, env)
     case assignment: Term.Assign         => evalAssignment(assignment, env)
     case doTerm: Term.Do                 => evalDoWhile(doTerm, env)
-    case eta: Term.Eta                   => ???
+    case eta: Term.Eta                   => evalEta(eta, env)
     case forTerm: Term.For               => evalFor(forTerm, env)
     case forTerm: Term.ForYield          => evalForYield(forTerm, env)
     case function: Term.Function         => evalFunction(function, env)
@@ -56,6 +56,32 @@ object Engine {
     case whileTerm: Term.While           => evalWhile(whileTerm, env)
     case select: Term.Select             => evalSelect(select, env)
     case xml: Term.Xml                   => sys.error("XMLs are unsupported")
+  }
+
+  def evalEta(eta: Term.Eta, env: Env)(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
+    val (ref, env1) = eval(eta.expr, env)
+    ref match {
+      case InterpreterDefinedFunctionRef(paramss, _, body, capturedEnv) =>
+        paramss match {
+          case xs :+ x =>
+            val f = xs.foldRight(Term.Function(x, body)) {
+              case (params, function) => Term.Function(params, function)
+            }
+            evalFunction(f, env1)
+          case Nil =>
+            evalFunction(Term.Function(immutable.Seq.empty, body), env1)
+        }
+      case other =>
+        val function = new InterpreterNativeFunctionRef {
+          override def apply(argRefs: Seq[InterpreterRef], callSiteEnv: Env): (InterpreterRef, Env) = {
+            if (argRefs.nonEmpty) {
+              sys.error("Did not expect any arguments for this function")
+            }
+            (other, callSiteEnv)
+          }
+        }
+        (function, env1)
+    }
   }
 
   def evalInterpolate(interpolate: Term.Interpolate, env: Env)(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
@@ -95,11 +121,11 @@ object Engine {
     val x = Term.Name("__interpreterMatchX__")
     val xParam = Term.Param(immutable.Seq.empty[Mod], x, None, None)
     val termMatch = Term.Match(x, partialFunction.cases)
-    (InterpreterFunctionRef(Seq(Seq(xParam)), null, termMatch, env), env)
+    (InterpreterDefinedFunctionRef(immutable.Seq(immutable.Seq(xParam)), null, termMatch, env), env)
   }
 
   def evalFunction(function: Term.Function, env: Env)(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
-    (InterpreterFunctionRef(Seq(function.params), null, function.body, env), env)
+    (InterpreterDefinedFunctionRef(immutable.Seq(function.params), null, function.body, env), env)
   }
 
   def evalForYield(forTerm: Term.ForYield, env: Env)(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
@@ -673,11 +699,11 @@ object Engine {
           case Some(Template(_, _, _, _)) =>
             val (_, ref) = env.thisContext.head
             val obj = env.heap(ref).asInstanceOf[InterpreterObject]
-            val funRef = InterpreterFunctionRef(paramss, tparams, body, env)
+            val funRef = InterpreterDefinedFunctionRef(paramss, tparams, body, env)
             val newObj = obj.extend(name.symbol, funRef)
             InterpreterRef.wrap((), env.extend(name.symbol, funRef).extend(ref, newObj), t"Unit")
           case _ =>
-            val funRef = InterpreterFunctionRef(paramss, tparams, body, env)
+            val funRef = InterpreterDefinedFunctionRef(paramss, tparams, body, env)
             InterpreterRef.wrap((), env.extend(name.symbol, funRef), t"Unit")
         }
       case Defn.Trait(mods, name, tparams, ctor, templ) =>
