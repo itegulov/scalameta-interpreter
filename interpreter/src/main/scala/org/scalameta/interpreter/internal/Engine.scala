@@ -6,6 +6,7 @@ import org.scalameta.interpreter.ScalametaMirror
 import org.scalameta.interpreter.ScalametaMirror._
 import org.scalameta.interpreter.internal.flow.exceptions.{InterpreterException, ReturnException}
 
+import scala.annotation.tailrec
 import scala.collection.immutable
 import scala.collection.immutable.ListMap
 import scala.collection.mutable.ArrayBuffer
@@ -41,7 +42,7 @@ object Engine {
     case forTerm: Term.ForYield          => evalForYield(forTerm, env)
     case function: Term.Function         => evalFunction(function, env)
     case ifTerm: Term.If                 => evalIf(ifTerm, env)
-    case interpolate: Term.Interpolate   => ???
+    case interpolate: Term.Interpolate   => evalInterpolate(interpolate, env)
     case termMatch: Term.Match           => evalMatch(termMatch, env)
     case newTerm: Term.New               => evalNew(newTerm, env)
     case function: Term.PartialFunction  => evalPartialFunction(function, env)
@@ -54,7 +55,39 @@ object Engine {
     case update: Term.Update             => ???
     case whileTerm: Term.While           => evalWhile(whileTerm, env)
     case select: Term.Select             => evalSelect(select, env)
-    case xml: Term.Xml                   => ???
+    case xml: Term.Xml                   => sys.error("XMLs are unsupported")
+  }
+
+  def evalInterpolate(interpolate: Term.Interpolate, env: Env)(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
+    interpolate.prefix.symbol match {
+      case ScalametaMirror.StringInterpolationS =>
+        var resEnv = env
+        val results = for (arg <- interpolate.args) yield {
+          val (res, newEnv) = eval(arg, resEnv)
+          resEnv = newEnv
+          res
+        }
+        val literalResults = for (part <- interpolate.parts) yield {
+          val (res, newEnv) = eval(part, resEnv)
+          resEnv = newEnv
+          res
+        }
+        val stringResults = results.map(_.reify(resEnv)).map(_.toString)
+        val stringLiteralResults = literalResults.map(_.reify(resEnv)).map(_.toString)
+
+        @tailrec
+        def merge[T](x: Seq[T], y: Seq[T], acc: Seq[T]): Seq[T] = {
+          (x, y) match {
+            case (Nil, Nil)           => acc
+            case (Nil, _)             => acc ++ y
+            case (_, Nil)             => acc ++ x
+            case (xh :: xs, yh :: ys) => merge(xs, ys, acc ++ Seq(xh, yh))
+          }
+        }
+
+        val result = merge(stringLiteralResults, stringResults, Seq.empty).mkString("")
+        InterpreterRef.wrap(result, resEnv, t"String")
+    }
   }
 
   def evalPartialFunction(partialFunction: Term.PartialFunction, env: Env)(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {

@@ -11,6 +11,7 @@ object ScalametaMirror {
   val AnyHashcode = Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Type("Any")), Signature.Method("hashCode", "()I"))
   val `Any==` = Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Type("Any")), Signature.Method("==", "(I)Z"))
   val `Any!=` = Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Type("Any")), Signature.Method("!=", "(I)Z"))
+  val StringInterpolationS = Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Type("StringContext")), Signature.Method("s", "(Lscala/collection/Seq;)Ljava/lang/String;"))
 
   private val emptySymbol = Symbol.Global(Symbol.None, Signature.Term("_empty_"))
   private val A = Symbol.Global(emptySymbol, Signature.Type("A"))
@@ -51,6 +52,7 @@ object ScalametaMirror {
         case Term.Name("oax") => Symbol.Global(OA, Signature.Term("oax"))
         case Term.Name("fooOAI") => Symbol.Global(A, Signature.Method("fooOAI", "(I)I"))
         // Predef
+        case Term.Name("s") => StringInterpolationS
         case Type.Name("Double") => Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Type("Double"))
         case Type.Name("Int") => Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Type("Int"))
         case Term.Name("println") => Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Term("Predef")), Signature.Method("println", "(Ljava/lang/Object;)V"))
