@@ -1,11 +1,13 @@
 package org.scalameta.interpreter.fp
 
-import org.scalameta.interpreter.ScalametaInterpreterSpec
+import org.scalameta.interpreter.{ScalametaInterpreterSpec, ScalametaMirrorImpl}
 import org.scalameta.interpreter.internal.environment.InterpreterWrappedJvm
 
 import scala.meta._
 
 class ScalaMatchSpec extends ScalametaInterpreterSpec {
+  implicit val mirror = ScalametaMirrorImpl
+
   it should "match integers" in {
     checkCode(
       q"""

@@ -1,10 +1,10 @@
 package org.scalameta.interpreter.fp
 
-import org.scalameta.interpreter.ScalametaInterpreterSpec
+import org.scalameta.interpreter.{ScalametaInterpreterDefault, ScalametaInterpreterSpec}
 
 import scala.meta._
 
-class ScalaEtaSpec extends ScalametaInterpreterSpec {
+class ScalaEtaSpec extends ScalametaInterpreterSpec with ScalametaInterpreterDefault {
   it should "handle simple eta expansion" in {
     checkCode(
       q"""

@@ -1,10 +1,10 @@
 package org.scalameta.interpreter.oop
 
-import org.scalameta.interpreter.ScalametaInterpreterSpec
+import org.scalameta.interpreter.{ScalametaInterpreterDefault, ScalametaInterpreterSpec}
 
 import scala.meta._
 
-class ScalaClassSpec extends ScalametaInterpreterSpec {
+class ScalaClassSpec extends ScalametaInterpreterSpec with ScalametaInterpreterDefault {
   it should "handle simple classes" in {
     checkCode(q"""
          class A(val a1: Int, val a2: Double)

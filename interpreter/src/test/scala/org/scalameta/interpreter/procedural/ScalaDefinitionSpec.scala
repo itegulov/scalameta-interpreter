@@ -1,11 +1,10 @@
 package org.scalameta.interpreter.procedural
 
-import org.scalameta.interpreter.ScalametaInterpreterSpec
-import org.scalameta.interpreter.internal.environment._
+import org.scalameta.interpreter._
 
 import scala.meta._
 
-class ScalaDefinitionSpec extends ScalametaInterpreterSpec {
+class ScalaDefinitionSpec extends ScalametaInterpreterSpec with ScalametaInterpreterDefault {
   it should "handle simple val initialization" in {
     checkCode(q"val x = 7", (), Seq(("x", 7)))
   }

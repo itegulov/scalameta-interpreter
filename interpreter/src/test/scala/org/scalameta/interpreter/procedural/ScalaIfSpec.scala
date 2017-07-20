@@ -1,9 +1,10 @@
 package org.scalameta.interpreter.procedural
 
-import org.scalameta.interpreter.ScalametaInterpreterSpec
+import org.scalameta.interpreter.{ScalametaInterpreterDefault, ScalametaInterpreterSpec}
+
 import scala.meta._
 
-class ScalaIfSpec extends ScalametaInterpreterSpec {
+class ScalaIfSpec extends ScalametaInterpreterSpec with ScalametaInterpreterDefault {
   it should "handle basic true if expression" in {
     checkCode(q"if (true) 1 else 2", 1, Seq())
   }

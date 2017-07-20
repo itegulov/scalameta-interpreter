@@ -1,10 +1,10 @@
 package org.scalameta.interpreter.procedural
 
-import org.scalameta.interpreter.ScalametaInterpreterSpec
+import org.scalameta.interpreter.{ScalametaInterpreterDefault, ScalametaInterpreterSpec}
 
 import scala.meta._
 
-class ScalaReturnSpec extends ScalametaInterpreterSpec {
+class ScalaReturnSpec extends ScalametaInterpreterSpec with ScalametaInterpreterDefault {
   it should "be able to return values explicitly" in {
     checkCode(
       q"""

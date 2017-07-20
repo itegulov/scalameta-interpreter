@@ -1,11 +1,10 @@
 package org.scalameta.interpreter.predef
 
-import org.scalameta.interpreter.ScalametaInterpreterSpec
-import org.scalameta.interpreter.internal.environment.InterpreterWrappedJvm
+import org.scalameta.interpreter.{ScalametaInterpreterDefault, ScalametaInterpreterSpec}
 
 import scala.meta._
 
-class ScalaPredefSpec extends ScalametaInterpreterSpec {
+class ScalaPredefSpec extends ScalametaInterpreterSpec with ScalametaInterpreterDefault {
   it should "be able to call predef functions" in {
     checkCode(
       q"""

@@ -1,10 +1,10 @@
 package org.scalameta.interpreter.oop
 
-import org.scalameta.interpreter.ScalametaInterpreterSpec
+import org.scalameta.interpreter.{ScalametaInterpreterDefault, ScalametaInterpreterSpec}
 
 import scala.meta._
 
-class ScalaObjectSpec extends ScalametaInterpreterSpec {
+class ScalaObjectSpec extends ScalametaInterpreterSpec with ScalametaInterpreterDefault {
   it should "be able to create simple objects" in {
     checkCode(
       q"""

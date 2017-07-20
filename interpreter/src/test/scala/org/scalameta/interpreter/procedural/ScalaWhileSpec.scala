@@ -1,10 +1,10 @@
 package org.scalameta.interpreter.procedural
 
-import org.scalameta.interpreter.ScalametaInterpreterSpec
+import org.scalameta.interpreter.{ScalametaInterpreterDefault, ScalametaInterpreterSpec}
 
 import scala.meta._
 
-class ScalaWhileSpec extends ScalametaInterpreterSpec {
+class ScalaWhileSpec extends ScalametaInterpreterSpec with ScalametaInterpreterDefault {
   it should "handle zero iterations" in {
     checkCode(
       q"""

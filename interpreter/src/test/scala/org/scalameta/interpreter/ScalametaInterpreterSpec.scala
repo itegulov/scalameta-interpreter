@@ -18,10 +18,11 @@ class ScalametaInterpreterSpec
     with TryValues
     with ScalaFutures
     with StrictLogging {
-  def checkCode(code: Tree,
-                expectedResult: Any,
-                expectedSymbols: Seq[(String, Any)]): (InterpreterRef, Env) = {
-    implicit val mirror = ScalametaMirrorImpl
+  def checkCode(
+    code: Tree,
+    expectedResult: Any,
+    expectedSymbols: Seq[(String, Any)]
+  )(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
     val (ref, env) = Engine.eval(code)
     ref.reify(env) should be(expectedResult)
     for ((symbolName, symbolValue) <- expectedSymbols) {

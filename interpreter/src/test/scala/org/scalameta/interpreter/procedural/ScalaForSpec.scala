@@ -1,10 +1,11 @@
 package org.scalameta.interpreter.procedural
 
-import org.scalameta.interpreter.ScalametaInterpreterSpec
+import org.scalameta.interpreter.{ScalametaInterpreterDefault, ScalametaInterpreterSpec}
 
 import scala.meta._
 
-class ScalaForSpec extends ScalametaInterpreterSpec {
+class ScalaForSpec extends ScalametaInterpreterSpec with ScalametaInterpreterDefault {
+
   it should "process simple for loops" in {
     checkCode(
       q"""

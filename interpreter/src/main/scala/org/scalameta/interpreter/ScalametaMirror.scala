@@ -2,9 +2,13 @@ package org.scalameta.interpreter
 
 import scala.meta._
 
-sealed trait ScalametaMirror
+trait ScalametaMirror {
+  def apply(name: Tree): Symbol
+}
 
-case object ScalametaMirrorImpl extends ScalametaMirror
+case object ScalametaMirrorImpl extends ScalametaMirror {
+  override def apply(name: Tree): Symbol = sys.error("Unknown symbol")
+}
 
 object ScalametaMirror {
   val AnyEquals = Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Type("Any")), Signature.Method("equals", "(Ljava/lang/Object;)Z"))
@@ -13,10 +17,10 @@ object ScalametaMirror {
   val `Any!=` = Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Type("Any")), Signature.Method("!=", "(I)Z"))
   val StringInterpolationS = Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Type("StringContext")), Signature.Method("s", "(Lscala/collection/Seq;)Ljava/lang/String;"))
 
-  private val emptySymbol = Symbol.Global(Symbol.None, Signature.Term("_empty_"))
-  private val A = Symbol.Global(emptySymbol, Signature.Type("A"))
-  private val B = Symbol.Global(emptySymbol, Signature.Type("B"))
-  private val OA = Symbol.Global(emptySymbol, Signature.Term("OA"))
+  val emptySymbol = Symbol.Global(Symbol.None, Signature.Term("_empty_"))
+  val A = Symbol.Global(emptySymbol, Signature.Type("A"))
+  val B = Symbol.Global(emptySymbol, Signature.Type("B"))
+  val OA = Symbol.Global(emptySymbol, Signature.Term("OA"))
 
   implicit class ScalametaSymbol(tree: Tree)(implicit mirror: ScalametaMirror) {
     def symbol: Symbol = {
@@ -25,10 +29,10 @@ object ScalametaMirror {
         case Term.Name("x") => Symbol.Local("x")
         case Term.Name("y") => Symbol.Local("y")
         case Term.Name("z") => Symbol.Local("z")
-        case Term.Name("fooS") => Symbol.Global(A, Signature.Method("fooS", "(Ljava/lang/String;)Ljava/lang/String;"))
-        case Term.Name("fooI") => Symbol.Global(A, Signature.Method("fooI", "(I)I"))
-        case Term.Name("barS") => Symbol.Global(A, Signature.Method("barS", "(Ljava/lang/String;)Ljava/lang/String;"))
-        case Term.Name("barI") => Symbol.Global(A, Signature.Method("barI", "(I)I"))
+        case Term.Name("fooS") => Symbol.Global(emptySymbol, Signature.Method("fooS", "(Ljava/lang/String;)Ljava/lang/String;"))
+        case Term.Name("fooI") => Symbol.Global(emptySymbol, Signature.Method("fooI", "(I)I"))
+        case Term.Name("barS") => Symbol.Global(emptySymbol, Signature.Method("barS", "(Ljava/lang/String;)Ljava/lang/String;"))
+        case Term.Name("barI") => Symbol.Global(emptySymbol, Signature.Method("barI", "(I)I"))
         // A
         case Type.Name("A") => A
         // case Ctor.Ref.Name("A") => Symbol.Global(A, Signature.Method("<init>", "(ID)V"))
@@ -72,6 +76,7 @@ object ScalametaMirror {
         case Term.Name("!=") => `Any!=`
         // Internal
         case Term.Name("__interpreterMatchX__") => Symbol.Local("__interpreterMatchX__")
+        case other => mirror(other)
       }
     }
   }

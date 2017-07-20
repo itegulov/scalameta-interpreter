@@ -1,10 +1,10 @@
 package org.scalameta.interpreter.oop
 
-import org.scalameta.interpreter.ScalametaInterpreterSpec
+import org.scalameta.interpreter.{ScalametaInterpreterDefault, ScalametaInterpreterSpec}
 
 import scala.meta._
 
-class ScalaInheritanceSpec extends ScalametaInterpreterSpec {
+class ScalaInheritanceSpec extends ScalametaInterpreterSpec with ScalametaInterpreterDefault {
   it should "be able to instantiate classes with parents" in {
     checkCode(
       q"""

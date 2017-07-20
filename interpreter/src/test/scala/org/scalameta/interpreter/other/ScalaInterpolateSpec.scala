@@ -1,10 +1,10 @@
 package org.scalameta.interpreter.other
 
-import org.scalameta.interpreter.ScalametaInterpreterSpec
+import org.scalameta.interpreter.{ScalametaInterpreterDefault, ScalametaInterpreterSpec}
 
 import scala.meta._
 
-class ScalaInterpolateSpec extends ScalametaInterpreterSpec {
+class ScalaInterpolateSpec extends ScalametaInterpreterSpec with ScalametaInterpreterDefault {
   it should "interpolate simple strings" in {
     checkCode(
       q"""
