@@ -174,25 +174,29 @@ object Engine {
       enums match {
         case Enumerator.Generator(pat, rhs) :: tail =>
           val (rhsRef, rhsEnv) = eval(rhs, lEnv)
-          val iterableRhs      = rhsRef.reify(rhsEnv).asInstanceOf[Iterable[_]]
-          pat match {
-            case Pat.Var.Term(name) =>
-              var resEnv = rhsEnv
-              val result = ArrayBuffer.empty[Any]
-              for (oneRhs <- iterableRhs) {
-                val oneRhsRef = InterpreterJvmRef(null)
-                resEnv = resEnv.extend(oneRhsRef, InterpreterWrappedJvm(oneRhs))
-                val (newRef, newEnv) = evalForYieldRec(tail, resEnv)
-                resEnv = newEnv
-                val newVal = newRef.reify(newEnv)
-                if (newVal != NoValue) {
-                  newVal match {
-                    case iterable: Iterable[_] => result ++= iterable
-                    case other                 => result += other
+          val rhsVal = rhsRef.reify(rhsEnv)
+          Try(rhsVal.asInstanceOf[Iterable[_]]) match {
+            case Success(iterableRhs) =>
+              pat match {
+                case Pat.Var.Term(name) =>
+                  var resEnv = rhsEnv
+                  val result = ArrayBuffer.empty[Any]
+                  for (oneRhs <- iterableRhs) {
+                    val oneRhsRef = InterpreterJvmRef(null)
+                    resEnv = resEnv.extend(oneRhsRef, InterpreterWrappedJvm(oneRhs))
+                    val (newRef, newEnv) = evalForYieldRec(tail, resEnv)
+                    resEnv = newEnv
+                    val newVal = newRef.reify(newEnv)
+                    if (newVal != NoValue) {
+                      newVal match {
+                        case iterable: Iterable[_] => result ++= iterable
+                        case other                 => result += other
+                      }
+                    }
                   }
-                }
+                  InterpreterRef.wrapJvm(result, resEnv, t"Unit")
               }
-              InterpreterRef.wrapJvm(result, resEnv, t"Unit")
+            case Failure(_) => sys.error(s"Expected iterable in for, but got $rhsVal")
           }
         case Enumerator.Guard(cond) :: tail =>
           val (condRef, condEnv) = eval(cond, lEnv)
@@ -222,17 +226,21 @@ object Engine {
       enums match {
         case Enumerator.Generator(pat, rhs) :: tail =>
           val (rhsRef, rhsEnv) = eval(rhs, lEnv)
-          val iterableRhs      = rhsRef.reify(rhsEnv).asInstanceOf[Iterable[_]]
-          pat match {
-            case Pat.Var.Term(name) =>
-              var resEnv = rhsEnv
-              for (oneRhs <- iterableRhs) {
-                val oneRhsRef = InterpreterJvmRef(null)
-                resEnv = resEnv.extend(oneRhsRef, InterpreterWrappedJvm(oneRhs))
-                val (_, newEnv) = evalForRec(tail, resEnv)
-                resEnv = newEnv
+          val rhsVal = rhsRef.reify(rhsEnv)
+          Try(rhsVal.asInstanceOf[Iterable[_]]) match {
+            case Success(iterableRhs) =>
+              pat match {
+                case Pat.Var.Term(name) =>
+                  var resEnv = rhsEnv
+                  for (oneRhs <- iterableRhs) {
+                    val oneRhsRef = InterpreterJvmRef(null)
+                    resEnv = resEnv.extend(oneRhsRef, InterpreterWrappedJvm(oneRhs))
+                    val (_, newEnv) = evalForRec(tail, resEnv)
+                    resEnv = newEnv
+                  }
+                  InterpreterRef.wrap((), resEnv, t"Unit")
               }
-              InterpreterRef.wrap((), resEnv, t"Unit")
+            case Failure(_) => sys.error(s"Expected iterable in for, but got $rhsVal")
           }
         case Enumerator.Guard(cond) :: tail =>
           val (condRef, condEnv) = eval(cond, lEnv)
@@ -647,19 +655,7 @@ object Engine {
     env: Env
   )(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
     val (condRef, env1) = eval(ifTerm.cond, env)
-    val condEvaluation = env1.heap.get(condRef) match {
-      case Some(result) =>
-        Try(result.asInstanceOf[InterpreterPrimitive]) match {
-          case Success(primitive) =>
-            Try(primitive.value.asInstanceOf[Boolean]) match {
-              case Success(value) => value
-              case Failure(_)     => sys.error("`If`'s conditions should have type `Boolean`")
-            }
-          case Failure(_) => sys.error("`If`'s conditions should be primitive") // TODO: is it?
-        }
-      case None => sys.error("Illegal state")
-    }
-    if (condEvaluation) {
+    if (condRef.reifyBoolean(env1)) {
       eval(ifTerm.thenp, env1)
     } else {
       eval(ifTerm.elsep, env1)
@@ -675,10 +671,14 @@ object Engine {
         (ref, env)
       case None =>
         for ((_, classRef) <- env.thisContext) {
-          val obj = env.heap(classRef).asInstanceOf[InterpreterObject]
-          obj.fields.get(name.symbol) match {
-            case Some(ref) => return (ref, env)
-            case _         =>
+          Try(env.heap(classRef).asInstanceOf[InterpreterObject]) match {
+            case Success(obj) =>
+              obj.fields.get(name.symbol) match {
+                case Some(ref) => return (ref, env)
+                case _         =>
+              }
+            case Failure(_) =>
+              sys.error("Illegal state")
           }
         }
         sys.error(s"Unknown reference $name")
@@ -743,8 +743,10 @@ object Engine {
     case x              => x
   }
 
-  def evalLocalDef(definition: Defn,
-                   env: Env)(implicit mirror: ScalametaMirror): (InterpreterRef, Env) =
+  def evalLocalDef(
+    definition: Defn,
+    env: Env
+  )(implicit mirror: ScalametaMirror): (InterpreterRef, Env) =
     definition match {
       case Defn.Val(mods, pats, _, rhs) =>
         val (res, env1) = eval(rhs, env)
