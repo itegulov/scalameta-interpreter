@@ -60,7 +60,7 @@ object Engine {
       case returnTerm: Term.Return         => evalReturn(returnTerm, env)
       case throwTerm: Term.Throw           => evalThrow(throwTerm, env)
       case tryCatchTerm: Term.TryWithCases => evalTry(tryCatchTerm, env)
-      case tryCatchTerm: Term.TryWithTerm  => ??? // TODO: find out what is try with term
+      case tryCatchTerm: Term.TryWithTerm  => evalTryWithTerm(tryCatchTerm, env)
       case tuple: Term.Tuple               => evalTuple(tuple, env)
       case update: Term.Update             => ???
       case whileTerm: Term.While           => evalWhile(whileTerm, env)
@@ -419,16 +419,41 @@ object Engine {
     evalMatch(toMatchRef, termMatch.cases, env1)
   }
 
+  def evalTryWithTerm(
+    tryCatchTerm: Term.TryWithTerm,
+    env: Env
+  )(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
+    val (res, env1) = try {
+      eval(tryCatchTerm.expr, env)
+    } catch {
+      case InterpreterException(_, _) =>
+        eval(tryCatchTerm.catchp, env)
+    }
+    tryCatchTerm.finallyp match {
+      case Some(finallyp) =>
+        eval(finallyp, env1)
+      case _ =>
+        (res, env1)
+    }
+  }
+
   def evalTry(
     tryCatchTerm: Term.TryWithCases,
     env: Env
-  )(implicit mirror: ScalametaMirror): (InterpreterRef, Env) =
-    try {
+  )(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
+    val (res, env1) = try {
       eval(tryCatchTerm.expr, env)
     } catch {
       case InterpreterException(exceptionRef, exceptionEnv) =>
         evalMatch(exceptionRef, tryCatchTerm.catchp, exceptionEnv)
     }
+    tryCatchTerm.finallyp match {
+      case Some(finallyp) =>
+        eval(finallyp, env1)
+      case _ =>
+        (res, env1)
+    }
+  }
 
   def evalThrow(
     throwTerm: Term.Throw,
