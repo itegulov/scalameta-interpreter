@@ -19,25 +19,15 @@ class ScalametaInterpreterSpec
     with ScalaFutures
     with StrictLogging {
   def checkCode(code: Tree,
-                expectedResult: InterpreterValue,
-                expectedSymbols: Seq[(String, InterpreterValue)]): (InterpreterRef, Env) = {
+                expectedResult: Any,
+                expectedSymbols: Seq[(String, Any)]): (InterpreterRef, Env) = {
     implicit val mirror = ScalametaMirrorImpl
     val (ref, env) = Engine.eval(code)
-    env.heap.get(ref).value should be(expectedResult)
+    ref.reify(env) should be(expectedResult)
     for ((symbolName, symbolValue) <- expectedSymbols) {
       val symbolRef = env.stack.headOption.value.get(Symbol.Local(symbolName)).value
-      env.heap.get(symbolRef).value should be(symbolValue)
+      symbolRef.reify(env) should be(symbolValue)
     }
     (ref, env)
   }
-
-  implicit def intToPrimitive(int: Int): InterpreterPrimitive = InterpreterPrimitive(int)
-
-  implicit def doubleToPrimitive(double: Double): InterpreterPrimitive = InterpreterPrimitive(double)
-
-  implicit def unitToPrimitive(unit: Unit): InterpreterPrimitive = InterpreterPrimitive(unit)
-
-  implicit def booleanToPrimitive(bool: Boolean): InterpreterPrimitive = InterpreterPrimitive(bool)
-
-  implicit def stringToPrimitive(str: String): InterpreterPrimitive = InterpreterPrimitive(str)
 }

@@ -234,7 +234,7 @@ object Engine {
                   var resEnv = rhsEnv
                   for (oneRhs <- iterableRhs) {
                     val oneRhsRef = InterpreterJvmRef(null)
-                    resEnv = resEnv.extend(oneRhsRef, InterpreterWrappedJvm(oneRhs))
+                    resEnv = resEnv.extend(oneRhsRef, InterpreterWrappedJvm(oneRhs)).extend(name.symbol, oneRhsRef)
                     val (_, newEnv) = evalForRec(tail, resEnv)
                     resEnv = newEnv
                   }
@@ -565,8 +565,8 @@ object Engine {
     apply.fun match {
       case Term.Select(qual, name) =>
         val (qualRef, env1) = eval(qual, resEnv)
-        env1.heap.get(qualRef) match {
-          case Some(InterpreterPrimitive(value)) =>
+        qualRef.extract(env1) match {
+          case InterpreterPrimitive(value) =>
             val argValues = argRefs.map(_.reify(env1))
             name.symbol match {
               case ScalametaMirror.AnyEquals =>
@@ -598,7 +598,7 @@ object Engine {
                 val ref    = InterpreterJvmRef(null)
                 (ref, env.extend(ref, InterpreterPrimitive(result)))
             }
-          case Some(InterpreterObject(className, fields)) =>
+          case InterpreterObject(className, fields) =>
             fields.get(name.symbol) match {
               case Some(ref) =>
                 Try(ref.asInstanceOf[InterpreterFunctionRef]) match {
@@ -613,7 +613,39 @@ object Engine {
                 }
               case None => sys.error(s"Unknown field $name for object $qualRef")
             }
-          case _ => sys.error("Illegal state")
+
+          case InterpreterWrappedJvm(value) =>
+            val argValues = argRefs.map(_.reify(env1))
+            name.symbol match {
+              case ScalametaMirror.AnyEquals =>
+                argValues match {
+                  case Seq(arg) => InterpreterRef.wrap(value == arg, env1, t"Boolean")
+                  case _ => sys.error(s"Expected one argument for equals(), but got $argValues")
+                }
+              case ScalametaMirror.AnyHashcode =>
+                if (argValues.nonEmpty) {
+                  sys.error(s"Expected no arguments for hashCode, but got $argValues")
+                }
+                InterpreterRef.wrap(value.hashCode(), env1, t"Int")
+              case ScalametaMirror.`Any==` =>
+                argValues match {
+                  case Seq(arg) => InterpreterRef.wrap(value == arg, env1, t"Boolean")
+                  case _ => sys.error(s"Expected one argument for ==, but got $argValues")
+                }
+              case ScalametaMirror.`Any!=` =>
+                argValues match {
+                  case Seq(arg) => InterpreterRef.wrap(value != arg, env1, t"Boolean")
+                  case _ => sys.error(s"Expected one argument for !=, but got $argValues")
+                }
+              case _ =>
+                val runtimeName = toRuntimeName(name.value)
+                val allFuns =
+                  classOf[BoxesRunTime].getDeclaredMethods.filter(_.getName == runtimeName)
+                val fun    = allFuns.head
+                val result = fun.invoke(null, (value +: argValues).asInstanceOf[Seq[AnyRef]]: _*)
+                val ref    = InterpreterJvmRef(null)
+                (ref, env.extend(ref, InterpreterPrimitive(result)))
+            }
         }
       case name: Term.Name =>
         resEnv.stack.head.get(name.symbol) match {
@@ -623,29 +655,96 @@ object Engine {
             } catch {
               case ReturnException(retRef, retEnv) => (retRef, retEnv)
             }
-          case Some(x) =>
-            sys.error(s"Expected function, but got $x")
+          case Some(ref) =>
+            ref.extract(resEnv) match {
+              case InterpreterPrimitive(value) =>
+                sys.error(s"Expected function, but got $value")
+              case InterpreterObject(_, fields) =>
+                fields.get(Term.Name("apply").symbol) match {
+                  case Some(funRef: InterpreterFunctionRef) =>
+                    try {
+                      funRef(argRefs, resEnv)
+                    } catch {
+                      case ReturnException(retRef, retEnv) => (retRef, retEnv)
+                    }
+                  case _ => sys.error(s"There is no method 'apply' for $ref")
+                }
+              case InterpreterWrappedJvm(jvmValue) =>
+                val argsValues = argRefs.map(resEnv.heap.apply).map {
+                  case InterpreterPrimitive(value)  => value
+                  case InterpreterObject(_, fields) => InterpreterDynamic(fields)
+                  case InterpreterWrappedJvm(value) => value
+                }
+
+                import scala.reflect.runtime.{universe => ru}
+                val m      = ru.runtimeMirror(Predef.getClass.getClassLoader)
+                val im = m.reflect(jvmValue)
+                val method = im.symbol.typeSignature.member(ru.TermName("apply"))
+                val newValue = InterpreterWrappedJvm(im.reflectMethod(method.asMethod)(argsValues: _*))
+                val newRef = InterpreterJvmRef(null)
+                (newRef, resEnv.extend(newRef, newValue))
+            }
           case None =>
             import scala.reflect.runtime.{universe => ru}
             val m      = ru.runtimeMirror(Predef.getClass.getClassLoader)
-            val module = m.staticModule("scala.Predef")
-            val im     = m.reflectModule(module)
-            val alternatives =
-              im.symbol.info.decl(ru.TermName(name.value)).asTerm.alternatives.map(_.asMethod)
-            val method             = alternatives.filter(_.paramLists.head.size == argRefs.size).head
-            val objScalametaMirror = m.reflect(im.instance)
-            val ref                = InterpreterJvmRef(null)
-
+            def metaToReflect(s: Symbol): (ru.Symbol, ru.Symbol) = s match {
+              case Symbol.Global(Symbol.None, Signature.Term("_root_")) =>
+                (null, m.staticPackage("_root_"))
+              case Symbol.Global(owner, Signature.Term(termName)) =>
+                val (_, ownerReflect) = metaToReflect(owner)
+                ownerReflect match {
+                  case _: ru.ModuleSymbol =>
+                    val im = m.reflectModule(ownerReflect.asModule)
+                    (ownerReflect, im.symbol.info.decl(ru.TermName(termName)))
+                }
+              case Symbol.Global(owner, Signature.Method(methodName, jvmSignature)) =>
+                val (_, ownerReflect) = metaToReflect(owner)
+                val im = m.reflectModule(ownerReflect.asModule)
+                val alternatives =
+                  im.symbol.info.member(ru.TermName(methodName)).asTerm.alternatives
+                    .map(_.asMethod)
+                    .filter(_.paramLists.head.size == argRefs.size) // FIXME: add proper argument type check
+                (ownerReflect, alternatives.head)
+            }
             val argsValues = argRefs.map(resEnv.heap.apply).map {
               case InterpreterPrimitive(value)  => value
               case InterpreterObject(_, fields) => InterpreterDynamic(fields)
               case InterpreterWrappedJvm(value) => value
             }
+            metaToReflect(name.symbol) match {
+              case (owner: ru.ModuleSymbol, method: ru.MethodSymbol) =>
+                val im = m.reflectModule(owner)
+                val objScalametaMirror = m.reflect(im.instance)
+                val ref                = InterpreterJvmRef(null)
 
-            val res = InterpreterWrappedJvm(
-              objScalametaMirror.reflectMethod(method)(argsValues: _*)
-            )
-            (ref, resEnv.extend(ref, res))
+                val res = if (method.isVarargs) {
+                  InterpreterWrappedJvm(
+                    objScalametaMirror.reflectMethod(method)(argsValues)
+                  )
+                } else {
+                  InterpreterWrappedJvm(
+                    objScalametaMirror.reflectMethod(method)(argsValues: _*)
+                  )
+                }
+                (ref, resEnv.extend(ref, res))
+              case (_, module: ru.ModuleSymbol) =>
+                val im = m.reflectModule(module)
+                val objScalametaMirror = m.reflect(im.instance)
+                val ref                = InterpreterJvmRef(null)
+
+                val alternatives = im.symbol.info.member(ru.TermName("apply")).asTerm.alternatives.map(_.asMethod)
+                val method = alternatives.head
+                val res = if (method.isVarargs) {
+                  InterpreterWrappedJvm(
+                    objScalametaMirror.reflectMethod(method)(argsValues)
+                  )
+                } else {
+                  InterpreterWrappedJvm(
+                    objScalametaMirror.reflectMethod(method)(argsValues: _*)
+                  )
+                }
+                (ref, resEnv.extend(ref, res))
+            }
         }
     }
   }

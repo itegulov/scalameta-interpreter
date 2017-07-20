@@ -115,7 +115,7 @@ class ScalaMatchSpec extends ScalametaInterpreterSpec {
            case (x, y) => x
            case _      => -1
          }
-       """, InterpreterWrappedJvm(1), Seq())
+       """, 1, Seq())
     checkCode(
       q"""
          3 match {
@@ -132,7 +132,7 @@ class ScalaMatchSpec extends ScalametaInterpreterSpec {
            case z @ (x, y) => z
            case _          => -1
          }
-       """, InterpreterWrappedJvm((1, 2.0)), Seq())
+       """, (1, 2.0), Seq())
   }
 
   it should "match alternatives" in {

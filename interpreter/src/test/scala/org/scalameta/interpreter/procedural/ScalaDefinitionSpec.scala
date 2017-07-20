@@ -41,50 +41,50 @@ class ScalaDefinitionSpec extends ScalametaInterpreterSpec {
   it should "handle var initialization without body" in {
     checkCode(
       q"var x: Byte = _",
-      InterpreterPrimitive(()),
-      Seq(("x", InterpreterPrimitive(0.toByte)))
+      (),
+      Seq(("x", 0.toByte))
     )
     checkCode(
       q"var x: Short = _",
-      InterpreterPrimitive(()),
-      Seq(("x", InterpreterPrimitive(0.toShort)))
+      (),
+      Seq(("x", 0.toShort))
     )
     checkCode(
       q"var x: Char = _",
-      InterpreterPrimitive(()),
-      Seq(("x", InterpreterPrimitive(0.toChar)))
+      (),
+      Seq(("x", 0.toChar))
     )
     checkCode(q"var x: Int = _",
-      InterpreterPrimitive(()),
-      Seq(("x", InterpreterPrimitive(0)))
+      (),
+      Seq(("x", 0))
     )
     checkCode(q"var x: Long = _",
-      InterpreterPrimitive(()),
-      Seq(("x", InterpreterPrimitive(0l)))
+      (),
+      Seq(("x", 0l))
     )
     checkCode(
       q"var x: Float = _",
-      InterpreterPrimitive(()),
-      Seq(("x", InterpreterPrimitive(0.0f)))
+      (),
+      Seq(("x", 0.0f))
     )
     checkCode(
       q"var x: Double = _",
-      InterpreterPrimitive(()),
-      Seq(("x", InterpreterPrimitive(0.0d)))
+      (),
+      Seq(("x", 0.0d))
     )
     checkCode(
       q"var x: Boolean = _",
-      InterpreterPrimitive(()),
-      Seq(("x", InterpreterPrimitive(false)))
+      (),
+      Seq(("x", false))
     )
     checkCode(q"var x: Unit = _",
-      InterpreterPrimitive(()),
-      Seq(("x", InterpreterPrimitive(())))
+      (),
+      Seq(("x", ()))
     )
     checkCode(
       q"var x: String = _",
-      InterpreterPrimitive(()),
-      Seq(("x", InterpreterPrimitive(null)))
+      (),
+      Seq(("x", null))
     )
   }
 }

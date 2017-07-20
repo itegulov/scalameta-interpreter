@@ -10,6 +10,21 @@ class ScalaPredefSpec extends ScalametaInterpreterSpec {
     checkCode(
       q"""
          println("test")
-       """, InterpreterWrappedJvm(()), Seq())
+       """, (), Seq())
+  }
+
+  it should "be able to construct predef classes" in {
+    checkCode(
+      q"""
+         val x = Seq(1, 2, 3)
+       """, (), Seq())
+  }
+
+  it should "invoke predef class methods" in {
+    checkCode(
+      q"""
+         val x = Seq(1, 2, 3)
+         x(0)
+       """, 1, Seq())
   }
 }
