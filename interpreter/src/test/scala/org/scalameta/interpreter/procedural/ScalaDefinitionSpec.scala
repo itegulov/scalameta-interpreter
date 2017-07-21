@@ -86,4 +86,12 @@ class ScalaDefinitionSpec extends ScalametaInterpreterSpec with ScalametaInterpr
       Seq(("x", null))
     )
   }
+
+  it should "handle recursive functions" in {
+    checkCode(
+      q"""
+         def fooI(x: Int) = if (x == 0) 1 else x * fooI(x - 1)
+         fooI(5)
+       """, 120, Seq())
+  }
 }

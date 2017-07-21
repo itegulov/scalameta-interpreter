@@ -71,25 +71,33 @@ object Engine {
   def evalEta(eta: Term.Eta, env: Env)(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
     val (ref, env1) = eval(eta.expr, env)
     ref match {
-      case InterpreterDefinedFunctionRef(paramss, _, body, capturedEnv) =>
-        paramss match {
+      case fun: InterpreterFunctionRef =>
+        fun.params match {
           case xs :+ x =>
-            val f = xs.foldRight(Term.Function(x, body)) {
+            val f = xs.foldRight(Term.Function(x, fun.body)) {
               case (params, function) => Term.Function(params, function)
             }
             evalFunction(f, env1)
           case Nil =>
-            evalFunction(Term.Function(immutable.Seq.empty, body), env1)
+            evalFunction(Term.Function(immutable.Seq.empty, fun.body), env1)
         }
       case other =>
         val function = new InterpreterNativeFunctionRef {
-          override def apply(argRefs: Seq[InterpreterRef],
+          override def invoke(argRefs: Seq[InterpreterRef],
                              callSiteEnv: Env): (InterpreterRef, Env) = {
             if (argRefs.nonEmpty) {
               sys.error("Did not expect any arguments for this function")
             }
             (other, callSiteEnv)
           }
+
+          override def params: immutable.Seq[immutable.Seq[Term.Param]] = immutable.Seq.empty
+
+          override def tparams: immutable.Seq[Type.Param] = immutable.Seq.empty
+
+          override def body: Term = sys.error("Illegal state")
+
+          override def capturedEnv: Env = env1
         }
         (function, env1)
     }
@@ -629,7 +637,7 @@ object Engine {
                 Try(ref.asInstanceOf[InterpreterFunctionRef]) match {
                   case Success(fun) =>
                     try {
-                      fun(argRefs, env1.addThis(className, qualRef))
+                      fun.invoke(argRefs, env1.addThis(className, qualRef))
                     } catch {
                       case ReturnException(retRef, retEnv) => (retRef, retEnv)
                     }
@@ -676,7 +684,7 @@ object Engine {
         resEnv.stack.head.get(name.symbol) match {
           case Some(funRef: InterpreterFunctionRef) =>
             try {
-              funRef(argRefs, resEnv)
+              funRef.invoke(argRefs, resEnv)
             } catch {
               case ReturnException(retRef, retEnv) => (retRef, retEnv)
             }
@@ -688,7 +696,7 @@ object Engine {
                 fields.get(Term.Name("apply").symbol) match {
                   case Some(funRef: InterpreterFunctionRef) =>
                     try {
-                      funRef(argRefs, resEnv)
+                      funRef.invoke(argRefs, resEnv)
                     } catch {
                       case ReturnException(retRef, retEnv) => (retRef, retEnv)
                     }
@@ -927,11 +935,11 @@ object Engine {
           case Some(Template(_, _, _, _)) =>
             val (_, ref) = env.thisContext.head
             val obj      = env.heap(ref).asInstanceOf[InterpreterObject]
-            val funRef   = InterpreterDefinedFunctionRef(paramss, tparams, body, env)
+            val funRef   = InterpreterDefinedPrefunctionRef(paramss, tparams, body, name.symbol, env)
             val newObj   = obj.extend(name.symbol, funRef)
             InterpreterRef.wrap((), env.extend(name.symbol, funRef).extend(ref, newObj), t"Unit")
           case _ =>
-            val funRef = InterpreterDefinedFunctionRef(paramss, tparams, body, env)
+            val funRef = InterpreterDefinedPrefunctionRef(paramss, tparams, body, name.symbol, env)
             InterpreterRef.wrap((), env.extend(name.symbol, funRef), t"Unit")
         }
       case Defn.Trait(mods, name, tparams, ctor, templ) =>

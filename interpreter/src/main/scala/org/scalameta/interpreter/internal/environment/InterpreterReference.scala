@@ -47,16 +47,39 @@ sealed trait InterpreterRef {
 }
 
 abstract class InterpreterFunctionRef extends InterpreterRef {
-  def apply(argRefs: Seq[InterpreterRef], callSiteEnv: Env): (InterpreterRef, Env)
+  def params: immutable.Seq[immutable.Seq[Term.Param]]
+  def tparams: immutable.Seq[Type.Param]
+  def body: Term
+  def capturedEnv: Env
+  def invoke(argRefs: Seq[InterpreterRef], callSiteEnv: Env): (InterpreterRef, Env)
 }
 
-final case class InterpreterDefinedFunctionRef(
+final case class InterpreterDefinedPrefunctionRef (
+  params: immutable.Seq[immutable.Seq[Term.Param]],
+  tparams: immutable.Seq[Type.Param],
+  body: Term,
+  symbol: Symbol,
+  capturedEnv: Env
+)(implicit mirror: ScalametaMirror) extends InterpreterFunctionRef {
+  override def invoke(argRefs: Seq[InterpreterRef], callSiteEnv: Env): (InterpreterRef, Env) = {
+    InterpreterDefinedFunctionRef(
+      params,
+      tparams,
+      body,
+      capturedEnv.extend(symbol, this)
+    ).invoke(argRefs, callSiteEnv)
+  }
+
+  override def tpe: Type = ???
+}
+
+final case class InterpreterDefinedFunctionRef (
   params: immutable.Seq[immutable.Seq[Term.Param]],
   tparams: immutable.Seq[Type.Param],
   body: Term,
   capturedEnv: Env
 )(implicit mirror: ScalametaMirror) extends InterpreterFunctionRef {
-  def apply(argRefs: Seq[InterpreterRef], callSiteEnv: Env): (InterpreterRef, Env) = {
+  override def invoke(argRefs: Seq[InterpreterRef], callSiteEnv: Env): (InterpreterRef, Env) = {
     val env1 = callSiteEnv.pushFrame(capturedEnv.stack.head)
     params match {
       case fParams :: Nil if fParams.size == argRefs.size =>
@@ -69,7 +92,7 @@ final case class InterpreterDefinedFunctionRef(
         val env2 = fParams
           .zip(argRefs)
           .foldLeft(env1)((tmpEnv, argRef) => tmpEnv.extend(argRef._1.name.symbol, argRef._2))
-        (InterpreterDefinedFunctionRef(fParamss, tparams.tail, body, env2), callSiteEnv)
+        (new InterpreterDefinedFunctionRef(fParamss, tparams.tail, body, env2), callSiteEnv)
       case fParams :: _ =>
         sys.error(s"Expected ${fParams.size} arguments, but got ${argRefs.size}")
       case Nil if argRefs.isEmpty =>
