@@ -82,17 +82,31 @@ final case class InterpreterDefinedFunctionRef (
   override def invoke(argRefs: Seq[InterpreterRef], callSiteEnv: Env): (InterpreterRef, Env) = {
     val env1 = callSiteEnv.pushFrame(capturedEnv.stack.head)
     params match {
-      case fParams :: Nil if fParams.size == argRefs.size =>
+      case fParams :: Nil if argRefs.size <= fParams.size && fParams.drop(argRefs.size).forall(_.default.isDefined) =>
+        var resEnv = env1
+        val defaults = fParams.drop(argRefs.size).map(_.default.get)
+        val defaultRefs = for (default <- defaults) yield {
+          val (res, newEnv) = Engine.eval(default, resEnv)
+          resEnv = newEnv
+          res
+        }
         val env2 = fParams
-          .zip(argRefs)
-          .foldLeft(env1)((tmpEnv, argRef) => tmpEnv.extend(argRef._1.name.symbol, argRef._2))
+          .zip(argRefs ++ defaultRefs)
+          .foldLeft(resEnv)((tmpEnv, argRef) => tmpEnv.extend(argRef._1.name.symbol, argRef._2))
         val (res, env3) = Engine.eval(body, env2)
         (res, callSiteEnv.extendHeap(env3.heap))
-      case fParams :: fParamss if fParams.size == argRefs.size =>
+      case fParams :: fParamss if argRefs.size <= fParams.size && fParams.drop(argRefs.size).forall(_.default.isDefined) =>
+        var resEnv = env1
+        val defaults = fParams.drop(argRefs.size).map(_.default.get)
+        val defaultRefs = for (default <- defaults) yield {
+          val (res, newEnv) = Engine.eval(default, resEnv)
+          resEnv = newEnv
+          res
+        }
         val env2 = fParams
-          .zip(argRefs)
-          .foldLeft(env1)((tmpEnv, argRef) => tmpEnv.extend(argRef._1.name.symbol, argRef._2))
-        (new InterpreterDefinedFunctionRef(fParamss, tparams.tail, body, env2), callSiteEnv)
+          .zip(argRefs ++ defaultRefs)
+          .foldLeft(resEnv)((tmpEnv, argRef) => tmpEnv.extend(argRef._1.name.symbol, argRef._2))
+        (InterpreterDefinedFunctionRef(fParamss, tparams.tail, body, env2), callSiteEnv)
       case fParams :: _ =>
         sys.error(s"Expected ${fParams.size} arguments, but got ${argRefs.size}")
       case Nil if argRefs.isEmpty =>
