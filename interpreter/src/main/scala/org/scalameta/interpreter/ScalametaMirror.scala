@@ -7,7 +7,7 @@ trait ScalametaMirror {
 }
 
 case object ScalametaMirrorImpl extends ScalametaMirror {
-  override def apply(name: Tree): Symbol = sys.error("Unknown symbol")
+  override def apply(name: Tree): Symbol = sys.error(s"Unknown symbol ${name.structure}")
 }
 
 object ScalametaMirror {
@@ -54,16 +54,20 @@ object ScalametaMirror {
         // OA
         case Term.Name("OA") => OA
         case Term.Name("oax") => Symbol.Global(OA, Signature.Term("oax"))
-        case Term.Name("fooOAI") => Symbol.Global(A, Signature.Method("fooOAI", "(I)I"))
+        case Term.Name("fooOAI") => Symbol.Global(OA, Signature.Method("fooOAI", "(I)I"))
         // Predef
         case Term.Name("s") => StringInterpolationS
         case Type.Name("Double") => Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Type("Double"))
         case Type.Name("Int") => Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Type("Int"))
         case Term.Name("println") => Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Term("Predef")), Signature.Method("println", "(Ljava/lang/Object;)V"))
         case Term.Name("Seq") => Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Term("collection")), Signature.Term("Seq"))
+        case Term.Name("List") => Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Term("collection")), Signature.Term("immutable")), Signature.Term("List"))
         // Generic
         case Term.Name("equals") => AnyEquals
         case Term.Name("hashCode") => AnyHashcode
+        case Term.Name("&&") => Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Type("Boolean")), Signature.Method("&&", "(Z)Z"))
+        case Term.Name("||") => Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Type("Boolean")), Signature.Method("||", "(Z)Z"))
+        case Term.Name("!") => Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Type("Boolean")), Signature.Method("unary_!", "()Z"))
         case Term.Name("+") => Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Type("Int")), Signature.Method("+", "(I)I"))
         case Term.Name("-") => Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Type("Int")), Signature.Method("-", "(I)I"))
         case Term.Name("*") => Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Type("Int")), Signature.Method("*", "(I)I"))

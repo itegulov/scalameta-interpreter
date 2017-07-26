@@ -43,6 +43,7 @@ object Engine {
     term match {
       case apply: Term.Apply               => evalApply(apply, env)
       case Term.ApplyInfix(lhs, op, _, xs) => evalApply(Term.Apply(Term.Select(lhs, op), xs), env)
+      case Term.ApplyUnary(op, arg)        => evalApply(Term.Apply(Term.Select(arg, op), immutable.Seq.empty), env)
       case applyType: Term.ApplyType       => ???
       case ascribe: Term.Ascribe           => evalAscribe(ascribe, env)
       case assignment: Term.Assign         => evalAssignment(assignment, env)
@@ -858,6 +859,9 @@ object Engine {
   }
 
   def toRuntimeName(name: String): String = name match {
+    case "&&" => "takeConditionalAnd"
+    case "||" => "takeConditionalOr"
+    case "!"  => "takeNot"
     case "+"  => "add"
     case "-"  => "subtract"
     case "*"  => "multiply"

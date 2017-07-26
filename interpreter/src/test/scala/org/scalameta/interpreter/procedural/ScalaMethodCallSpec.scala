@@ -17,10 +17,20 @@ class ScalaMethodCallSpec extends ScalametaInterpreterSpec with ScalametaInterpr
     checkCode(q"2 * 3", 6, Seq())
     checkCode(q"27 / 3", 9, Seq())
   }
+  
+  it should "be able to call infix boolean methods" in {
+    checkCode(q"true && false", false, Seq())
+    checkCode(q"true || false", true, Seq())
+  }
 
   it should "be able to call infix equals" in {
     checkCode(q"2 == 2", true, Seq())
     checkCode(q"2 != 2", false, Seq())
     checkCode(q"1.0 == 2", false, Seq())
+  }
+
+
+  it should "be able to call unary operators" in {
+    checkCode(q"!false", true, Seq())
   }
 }
