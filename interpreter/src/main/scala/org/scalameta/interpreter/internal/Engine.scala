@@ -28,18 +28,25 @@ object Engine {
       )
     )
 
-  def eval(tree: Tree, env: Env)(implicit mirror: ScalametaMirror): (InterpreterRef, Env) =
+  def eval(
+    tree: Tree, 
+    env: Env
+  )(implicit mirror: ScalametaMirror): (InterpreterRef, Env) =
     tree match {
       case literal: Lit       => evalLiteral(literal, env)
-      case definition: Defn   => evalLocalDef(definition, env)
+      case definition: Defn   => evalDefn(definition, env)
       case declaration: Decl  => InterpreterRef.wrap((), env, t"Unit") // FIXME: interpret them
+      case importTerm: Import => InterpreterRef.wrap((), env, t"Unit") // Imports are already resolved by semantic API
       case template: Template => evalTemplate(template, env)
       case block: Term.Block  => evalBlock(block, env)
       case name: Term.Name    => evalName(name, env)
       case term: Term         => evalTerm(term, env)
     }
 
-  def evalTerm(term: Term, env: Env)(implicit mirror: ScalametaMirror): (InterpreterRef, Env) =
+  def evalTerm(
+    term: Term,
+    env: Env
+  )(implicit mirror: ScalametaMirror): (InterpreterRef, Env) =
     term match {
       case apply: Term.Apply               => evalApply(apply, env)
       case Term.ApplyInfix(lhs, op, _, xs) => evalApply(Term.Apply(Term.Select(lhs, op), xs), env)
@@ -69,7 +76,157 @@ object Engine {
       case xml: Term.Xml                   => sys.error("XMLs are unsupported")
     }
 
-  def evalEta(eta: Term.Eta, env: Env)(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
+  def evalDefn(
+    definition: Defn,
+    env: Env
+  )(implicit mirror: ScalametaMirror): (InterpreterRef, Env) =
+    definition match {
+      case defnVal: Defn.Val       => evalDefnVal(defnVal, env)
+      case defnVar: Defn.Var       => evalDefnVar(defnVar, env)
+      case defnDef: Defn.Def       => evalDefnDef(defnDef, env)
+      case defnTrait: Defn.Trait   => evalDefnTrait(defnTrait, env)
+      case defnClass: Defn.Class   => evalDefnClass(defnClass, env)
+      case defnMacro: Defn.Macro   => sys.error("Macroses are not supported")
+      case defnObject: Defn.Object => evalDefnObject(defnObject, env)
+      case defnType: Defn.Type     => InterpreterRef.wrap((), env, t"Unit") // Type aliases are already resolved by semantic API
+    }
+
+  def evalDefnVal(
+    definition: Defn.Val,
+    env: Env
+  )(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
+    val (res, env1) = eval(definition.rhs, env)
+    definition.parent match {
+      case Some(Template(_, _, _, _)) =>
+        val (_, ref) = env.thisContext.head
+        var resObj   = env1.heap(ref).asInstanceOf[InterpreterObject]
+        for (pat <- definition.pats) {
+          pat match {
+            case Pat.Var.Term(termName) =>
+              resObj = resObj.extend(termName.symbol, res)
+          }
+        }
+        InterpreterRef.wrap((), env1.extend(ref, resObj), t"Unit")
+      case _ =>
+        var resEnv = env1
+        for (pat <- definition.pats) {
+          pat match {
+            case Pat.Var.Term(name) =>
+              resEnv = resEnv.extend(name.symbol, res)
+          }
+        }
+        InterpreterRef.wrap((), resEnv, t"Unit")
+    }
+  }
+
+  def evalDefnVar(
+    definition: Defn.Var,
+    env: Env
+  )(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
+    val (res, env1) = (definition.decltpe, definition.rhs) match {
+      case (_, Some(rhs))    => eval(rhs, env)
+      case (Some(tpe), None) => defaultValue(tpe, env)
+      case (None, None)      => sys.error("Unreachable")
+    }
+    definition.parent match {
+      case Some(Template(_, _, _, _)) =>
+        val (_, ref) = env.thisContext.head
+        var resObj   = env1.heap(ref).asInstanceOf[InterpreterObject]
+        for (pat <- definition.pats) {
+          pat match {
+            case Pat.Var.Term(termName) =>
+              resObj = resObj.extend(termName.symbol, res)
+          }
+        }
+        InterpreterRef.wrap((), env1.extend(ref, resObj), t"Unit")
+      case _ =>
+        var resEnv = env1
+        for (pat <- definition.pats) {
+          pat match {
+            case Pat.Var.Term(name) =>
+              resEnv = resEnv.extend(name.symbol, res)
+          }
+        }
+        InterpreterRef.wrap((), resEnv, t"Unit")
+    }
+  }
+
+  def evalDefnDef(
+    definition: Defn.Def,
+    env: Env
+  )(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
+    definition.parent match {
+      case Some(Template(_, _, _, _)) =>
+        val (_, ref) = env.thisContext.head
+        val obj      = env.heap(ref).asInstanceOf[InterpreterObject]
+        val funRef   = InterpreterDefinedPrefunctionRef(definition.paramss, definition.tparams, definition.body, definition.name.symbol, env)
+        val newObj   = obj.extend(definition.name.symbol, funRef)
+        InterpreterRef.wrap((), env.extend(definition.name.symbol, funRef).extend(ref, newObj), t"Unit")
+      case _ =>
+        val funRef = InterpreterDefinedPrefunctionRef(definition.paramss, definition.tparams, definition.body, definition.name.symbol, env)
+        InterpreterRef.wrap((), env.extend(definition.name.symbol, funRef), t"Unit")
+    }
+  }
+
+  def evalDefnTrait(
+    definition: Defn.Trait,
+    env: Env
+  )(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
+    require(definition.ctor.paramss.isEmpty, "Trait constructor should not have any parameters")
+    ???
+  }
+
+  def evalDefnClass(
+    definition: Defn.Class,
+    env: Env
+  )(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
+    val constructors = for (parent <- definition.templ.parents) yield {
+      parent match {
+        case Term.Apply(className, args) =>
+          env.classTable.table.get(className.symbol) match {
+            case Some(classInfo) => (classInfo.constructor, args)
+            case None            => sys.error(s"Unknown parent class: $className")
+          }
+        case className: Ctor.Ref.Name =>
+          env.classTable.table.get(className.symbol) match {
+            case Some(classInfo) => (classInfo.constructor, Seq.empty)
+            case None            => sys.error(s"Unknown parent class: $className")
+          }
+      }
+    }
+    val ctorRef = InterpreterCtorRef(
+      definition.name.symbol,
+      definition.ctor.paramss,
+      null,
+      definition.templ,
+      env,
+      constructors
+    )
+    val resEnv = env.addClass(definition.name.symbol, ClassInfo(ctorRef))
+    InterpreterRef.wrap((), resEnv, t"Unit")
+  }
+
+  def evalDefnObject(
+    definition: Defn.Object,
+    env: Env
+  )(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
+    val (_, env1) =
+      eval(Term.Block(definition.templ.stats.getOrElse(immutable.Seq.empty)), env.pushFrame(Map.empty))
+    val obj = InterpreterObject(definition.name.symbol, env1.stack.head)
+    val ref = InterpreterJvmRef(Type.Name(definition.name.value))
+    val resEnv = Env(
+      env1.stack.tail,
+      env1.heap + (ref -> obj),
+      env1.classTable,
+      env1.thisContext
+    )
+    InterpreterRef.wrap((), resEnv.extend(definition.name.symbol, ref), t"Unit")
+  }
+
+  def evalEta(
+    eta: Term.Eta,
+    env: Env
+  )(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
     val (ref, env1) = eval(eta.expr, env)
     ref match {
       case fun: InterpreterFunctionRef =>
@@ -878,118 +1035,4 @@ object Engine {
     case "scala.Double" => "java.lang.Double"
     case x              => x
   }
-
-  def evalLocalDef(
-    definition: Defn,
-    env: Env
-  )(implicit mirror: ScalametaMirror): (InterpreterRef, Env) =
-    definition match {
-      case Defn.Val(mods, pats, _, rhs) =>
-        val (res, env1) = eval(rhs, env)
-        definition.parent match {
-          case Some(Template(_, _, _, _)) =>
-            val (_, ref) = env.thisContext.head
-            var resObj   = env1.heap(ref).asInstanceOf[InterpreterObject]
-            for (pat <- pats) {
-              pat match {
-                case Pat.Var.Term(termName) =>
-                  resObj = resObj.extend(termName.symbol, res)
-              }
-            }
-            InterpreterRef.wrap((), env1.extend(ref, resObj), t"Unit")
-          case _ =>
-            var resEnv = env1
-            for (pat <- pats) {
-              pat match {
-                case Pat.Var.Term(name) =>
-                  resEnv = resEnv.extend(name.symbol, res)
-              }
-            }
-            InterpreterRef.wrap((), resEnv, t"Unit")
-        }
-      case Defn.Var(mods, pats, optTpe, optRhs) =>
-        val (res, env1) = (optTpe, optRhs) match {
-          case (_, Some(rhs))    => eval(rhs, env)
-          case (Some(tpe), None) => defaultValue(tpe, env)
-          case (None, None)      => sys.error("Unreachable")
-        }
-        definition.parent match {
-          case Some(Template(_, _, _, _)) =>
-            val (_, ref) = env.thisContext.head
-            var resObj   = env1.heap(ref).asInstanceOf[InterpreterObject]
-            for (pat <- pats) {
-              pat match {
-                case Pat.Var.Term(termName) =>
-                  resObj = resObj.extend(termName.symbol, res)
-              }
-            }
-            InterpreterRef.wrap((), env1.extend(ref, resObj), t"Unit")
-          case _ =>
-            var resEnv = env1
-            for (pat <- pats) {
-              pat match {
-                case Pat.Var.Term(name) =>
-                  resEnv = resEnv.extend(name.symbol, res)
-              }
-            }
-            InterpreterRef.wrap((), resEnv, t"Unit")
-        }
-      case Defn.Def(mods, name, tparams, paramss, tpe, body) =>
-        definition.parent match {
-          case Some(Template(_, _, _, _)) =>
-            val (_, ref) = env.thisContext.head
-            val obj      = env.heap(ref).asInstanceOf[InterpreterObject]
-            val funRef   = InterpreterDefinedPrefunctionRef(paramss, tparams, body, name.symbol, env)
-            val newObj   = obj.extend(name.symbol, funRef)
-            InterpreterRef.wrap((), env.extend(name.symbol, funRef).extend(ref, newObj), t"Unit")
-          case _ =>
-            val funRef = InterpreterDefinedPrefunctionRef(paramss, tparams, body, name.symbol, env)
-            InterpreterRef.wrap((), env.extend(name.symbol, funRef), t"Unit")
-        }
-      case Defn.Trait(mods, name, tparams, ctor, templ) =>
-        require(ctor.paramss.isEmpty, "Trait constructor should not have any parameters")
-        ???
-      case Defn.Class(mods, name, tparams, ctor, templ) =>
-        val constructors = for (parent <- templ.parents) yield {
-          parent match {
-            case Term.Apply(className, args) =>
-              env.classTable.table.get(className.symbol) match {
-                case Some(classInfo) => (classInfo.constructor, args)
-                case None            => sys.error(s"Unknown parent class: $className")
-              }
-            case className: Ctor.Ref.Name =>
-              env.classTable.table.get(className.symbol) match {
-                case Some(classInfo) => (classInfo.constructor, Seq.empty)
-                case None            => sys.error(s"Unknown parent class: $className")
-              }
-          }
-        }
-        val ctorRef = InterpreterCtorRef(
-          name.symbol,
-          ctor.paramss,
-          null,
-          templ,
-          env,
-          constructors
-        )
-        val resEnv = env.addClass(name.symbol, ClassInfo(ctorRef))
-        InterpreterRef.wrap((), resEnv, t"Unit")
-      case Defn.Macro(mods, name, tparams, paramss, decltpe, body) =>
-        sys.error("Macroses are not supported")
-      case Defn.Object(mods, name, templ) =>
-        val (_, env1) =
-          eval(Term.Block(templ.stats.getOrElse(immutable.Seq.empty)), env.pushFrame(Map.empty))
-        val obj = InterpreterObject(name.symbol, env1.stack.head)
-        val ref = InterpreterJvmRef(Type.Name(name.value))
-        val resEnv = Env(
-          env1.stack.tail,
-          env1.heap + (ref -> obj),
-          env1.classTable,
-          env1.thisContext
-        )
-        InterpreterRef.wrap((), resEnv.extend(name.symbol, ref), t"Unit")
-      case Defn.Type(mods, name, tparams, body) =>
-        logger.info("Ignoring type alias definition")
-        InterpreterRef.wrap((), env, t"Unit")
-    }
 }
