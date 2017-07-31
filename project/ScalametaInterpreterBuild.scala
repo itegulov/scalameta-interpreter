@@ -34,8 +34,7 @@ object ScalametaInterpreterBuild {
     .settings(commonSettings)
     .settings(
       libraryDependencies ++= Seq(
-        "org.scalameta" %% "scalameta" % "1.8.0",
-        "org.scalameta" %% "contrib" % "1.8.0"
+        "org.scalameta" %% "scalameta" % "2.0.0-M1"
       )
     )
 

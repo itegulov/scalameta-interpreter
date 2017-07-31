@@ -4,7 +4,6 @@ import org.scalameta.interpreter.ScalametaMirror
 import org.scalameta.interpreter.ScalametaMirror._
 import org.scalameta.interpreter.internal.Engine
 
-import scala.collection.immutable
 import scala.meta._
 
 sealed trait InterpreterRef {
@@ -47,21 +46,21 @@ sealed trait InterpreterRef {
 }
 
 abstract class InterpreterFunctionRef extends InterpreterRef {
-  def params: immutable.Seq[immutable.Seq[Term.Param]]
-  def tparams: immutable.Seq[Type.Param]
+  def params: List[List[Term.Param]]
+  def tparams: List[Type.Param]
   def body: Term
   def capturedEnv: Env
-  def invoke(argRefs: Seq[InterpreterRef], callSiteEnv: Env): (InterpreterRef, Env)
+  def invoke(argRefs: List[InterpreterRef], callSiteEnv: Env): (InterpreterRef, Env)
 }
 
 final case class InterpreterDefinedPrefunctionRef (
-  params: immutable.Seq[immutable.Seq[Term.Param]],
-  tparams: immutable.Seq[Type.Param],
+  params: List[List[Term.Param]],
+  tparams: List[Type.Param],
   body: Term,
   symbol: Symbol,
   capturedEnv: Env
 )(implicit mirror: ScalametaMirror) extends InterpreterFunctionRef {
-  override def invoke(argRefs: Seq[InterpreterRef], callSiteEnv: Env): (InterpreterRef, Env) = {
+  override def invoke(argRefs: List[InterpreterRef], callSiteEnv: Env): (InterpreterRef, Env) = {
     InterpreterDefinedFunctionRef(
       params,
       tparams,
@@ -74,12 +73,12 @@ final case class InterpreterDefinedPrefunctionRef (
 }
 
 final case class InterpreterDefinedFunctionRef (
-  params: immutable.Seq[immutable.Seq[Term.Param]],
-  tparams: immutable.Seq[Type.Param],
+  params: List[List[Term.Param]],
+  tparams: List[Type.Param],
   body: Term,
   capturedEnv: Env
 )(implicit mirror: ScalametaMirror) extends InterpreterFunctionRef {
-  override def invoke(argRefs: Seq[InterpreterRef], callSiteEnv: Env): (InterpreterRef, Env) = {
+  override def invoke(argRefs: List[InterpreterRef], callSiteEnv: Env): (InterpreterRef, Env) = {
     val env1 = callSiteEnv.pushFrame(capturedEnv.stack.head)
     params match {
       case fParams :: Nil if argRefs.size <= fParams.size && fParams.drop(argRefs.size).forall(_.default.isDefined) =>
@@ -126,21 +125,31 @@ abstract class InterpreterNativeFunctionRef extends InterpreterFunctionRef {
 
 final case class InterpreterCtorRef(
   className: Symbol,
-  params: Seq[Seq[Term.Param]],
-  tparams: Seq[Type.Param],
+  params: List[List[Term.Param]],
+  tparams: List[Type.Param],
   body: Tree,
   capturedEnv: Env,
-  parentConstructors: Seq[(InterpreterCtorRef, Seq[Term.Arg])]
+  parentConstructors: List[(InterpreterCtorRef, List[List[Term]])]
 )(implicit mirror: ScalametaMirror) extends InterpreterRef {
-  def apply(argRefs: Seq[InterpreterRef], callSiteEnv: Env): (InterpreterRef, Env) = {
+  def applyRec(argRefss: List[List[InterpreterRef]], callSiteEnv: Env): (InterpreterRef, Env) = {
+    argRefss match {
+      case Nil             => sys.error("Invalid state")
+      case argRefs :: Nil  => apply(argRefs, callSiteEnv)
+      case argRefs :: tailRefs => 
+        val (constructorRef, newEnv) = apply(argRefs, callSiteEnv)
+        constructorRef.asInstanceOf[InterpreterCtorRef].applyRec(tailRefs, newEnv)
+    }
+  }
+  
+  def apply(argRefs: List[InterpreterRef], callSiteEnv: Env): (InterpreterRef, Env) = {
     val env1 = callSiteEnv.pushFrame(capturedEnv.stack.head)
     params match {
       case fParams :: Nil if fParams.size == argRefs.size =>
         val env2 = fParams
           .zip(argRefs)
           .foldLeft(env1)((tmpEnv, argRef) => tmpEnv.extend(argRef._1.name.symbol, argRef._2))
-        val parentObjectsAndEnvs = for ((parentConstructor, args) <- parentConstructors) yield {
-          val (ref, newEnv) = parentConstructor.apply(args.map(_.asInstanceOf[Term.Name].symbol).map(env2.stack.head.apply), env1)
+        val parentObjectsAndEnvs = for ((parentConstructor, argss) <- parentConstructors) yield {
+          val (ref, newEnv) = parentConstructor.applyRec(argss.map(_.map(_.asInstanceOf[Term.Name].symbol).map(env2.stack.head.apply)), env1)
           (newEnv.heap(ref).asInstanceOf[InterpreterObject], newEnv)
         }
         val (parentObjects, parentEnvs) = parentObjectsAndEnvs.unzip
