@@ -36,7 +36,6 @@ object ScalametaMirror {
         // A
         case Type.Name("A") => A
         // case Ctor.Ref.Name("A") => Symbol.Global(A, Signature.Method("<init>", "(ID)V"))
-        case Ctor.Ref.Name("A") => A // FIXME: Should point to constructor, not a type
         case Term.Name("a") => Symbol.Local("a")
         case Term.Name("a1") => Symbol.Global(A, Signature.TermParameter("a1"))
         case Term.Name("a2") => Symbol.Global(A, Signature.TermParameter("a2"))
@@ -47,7 +46,6 @@ object ScalametaMirror {
         // B
         case Type.Name("B") => B
         // case Ctor.Ref.Name("B") => Symbol.Global(B, Signature.Method("<init>", "(ID)V"))
-        case Ctor.Ref.Name("B") => B // FIXME: Should point to constructor, not a type
         case Term.Name("b") => Symbol.Local("b")
         case Term.Name("b1") => Symbol.Global(B, Signature.TermParameter("b1"))
         case Term.Name("b2") => Symbol.Global(B, Signature.TermParameter("b2"))
@@ -62,6 +60,8 @@ object ScalametaMirror {
         case Term.Name("println") => Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Term("Predef")), Signature.Method("println", "(Ljava/lang/Object;)V"))
         case Term.Name("Seq") => Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Term("collection")), Signature.Term("Seq"))
         case Term.Name("List") => Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Term("collection")), Signature.Term("immutable")), Signature.Term("List"))
+        case Term.Name("Map") => Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Term("collection")), Signature.Term("mutable")), Signature.Term("Map"))
+        case Term.Name("augmentString") => Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Term("Predef")), Signature.Method("augmentString", "(Ljava/lang/String;)Ljava/lang/String;"))
         // Generic
         case Term.Name("equals") => AnyEquals
         case Term.Name("hashCode") => AnyHashcode
