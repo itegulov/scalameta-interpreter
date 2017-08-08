@@ -1,5 +1,7 @@
 package org.scalameta.interpreter.internal
 
+import java.lang.reflect.InvocationTargetException
+
 import org.scalameta.interpreter.internal.environment._
 import com.typesafe.scalalogging.Logger
 import org.scalameta.interpreter.ScalametaMirror
@@ -46,7 +48,7 @@ object Engine {
     term: Term,
     env: Env
   )(implicit mirror: ScalametaMirror): (InterpreterRef, Env) =
-    term match {
+    desugar(term) match {
       case apply: Term.Apply                 => evalApply(apply, env)
       case Term.ApplyInfix(lhs, op, _, xs)   => evalApply(Term.Apply(Term.Select(lhs, op), xs), env)
       case Term.ApplyUnary(op, arg)          => evalApply(Term.Apply(Term.Select(arg, op), List.empty), env)
@@ -88,6 +90,79 @@ object Engine {
       case defnObject: Defn.Object => evalDefnObject(defnObject, env)
       case defnType: Defn.Type     => InterpreterRef.wrap((), env, t"Unit") // Type aliases are already resolved by semantic API
     }
+  
+  def replaceStar(term: Term, replaceWith: Term): Term = {
+    def rec(s: Term): Term = s match {
+      case Term.Apply(fun, args)                       => Term.Apply(rec(fun), args.map(rec))
+      case Term.ApplyInfix(lhs, op, targs, args)       => Term.ApplyInfix(rec(lhs), op, targs, args.map(rec))
+      case Term.ApplyUnary(op, arg)                    => Term.ApplyUnary(op, rec(arg))
+      case Term.ApplyType(fun, targs)                  => Term.ApplyType(rec(fun), targs)
+      case Term.Ascribe(expr, tpe)                     => Term.Ascribe(rec(expr), tpe)
+      case Term.Assign(lhs, rhs)                       => Term.Assign(rec(lhs), rec(rhs))
+      case Term.Do(body, expr)                         => Term.Do(rec(body), rec(expr))
+      case Term.Eta(expr)                              => Term.Eta(rec(expr))
+      case Term.For(enums, body)                       => Term.For(enums, rec(body))
+      case Term.ForYield(enums, body)                  => Term.ForYield(enums, rec(body))
+      case Term.Function(params, body)                 => Term.Function(params, rec(body))
+      case Term.If(cond, thenp, elsep)                 => Term.If(rec(cond), rec(thenp), rec(elsep))
+      case Term.Interpolate(prefix, parts, args)       => Term.Interpolate(prefix, parts, args.map(rec))
+      case Term.Match(expr, cases)                     => Term.Match(rec(expr), cases)
+      case Term.New(Init(tpe, name, argss))            => Term.New(Init(tpe, name, argss.map(_.map(rec))))
+      case Term.PartialFunction(cases)                 => Term.PartialFunction(cases)
+      case placeholder: Term.Placeholder               => placeholder
+      case Term.Return(expr)                           => Term.Return(rec(expr))
+      case Term.Throw(expr)                            => Term.Throw(rec(expr))
+      case Term.Try(expr, catchp, finallyp)            => Term.Try(rec(expr), catchp, finallyp.map(rec))
+      case Term.TryWithHandler(expr, catchp, finallyp) => Term.TryWithHandler(rec(expr), rec(catchp), finallyp.map(rec))
+      case Term.Tuple(args)                            => Term.Tuple(args.map(rec))
+      case Term.While(expr, body)                      => Term.While(rec(expr), rec(body))
+      case Term.Select(qual, name)                     => Term.Select(rec(qual), name)
+      case xml: Term.Xml                               => sys.error("XMLs are unsupported")
+      case Term.Name("*")                              => replaceWith
+      case name: Term.Name                             => name
+    }
+    rec(term)
+  }
+  
+  def desugar(toDesugar: Term)(implicit mirror: ScalametaMirror): Term = {
+    def rec(s: Term): Term = {
+      s.sugar match {
+        case Some(sugar) =>
+          replaceStar(sugar, s)
+        case None =>
+          s match {
+            case Term.Apply(fun, args) => Term.Apply(rec(fun), args.map(rec))
+            case Term.ApplyInfix(lhs, op, targs, args) => Term.ApplyInfix(rec(lhs), op, targs, args.map(rec))
+            case Term.ApplyUnary(op, arg) => Term.ApplyUnary(op, rec(arg))
+            case Term.ApplyType(fun, targs) => Term.ApplyType(rec(fun), targs)
+            case Term.Ascribe(expr, tpe) => Term.Ascribe(rec(expr), tpe)
+            case Term.Assign(lhs, rhs) => Term.Assign(rec(lhs), rec(rhs))
+            case Term.Do(body, expr) => Term.Do(rec(body), rec(expr))
+            case Term.Eta(expr) => Term.Eta(rec(expr))
+            case Term.For(enums, body) => Term.For(enums, rec(body))
+            case Term.ForYield(enums, body) => Term.ForYield(enums, rec(body))
+            case Term.Function(params, body) => Term.Function(params, rec(body))
+            case Term.If(cond, thenp, elsep) => Term.If(rec(cond), rec(thenp), rec(elsep))
+            case Term.Interpolate(prefix, parts, args) => Term.Interpolate(prefix, parts, args.map(rec))
+            case Term.Match(expr, cases) => Term.Match(rec(expr), cases)
+            case Term.New(Init(tpe, name, argss)) => Term.New(Init(tpe, name, argss.map(_.map(rec))))
+            case Term.PartialFunction(cases) => Term.PartialFunction(cases)
+            case placeholder: Term.Placeholder => placeholder
+            case Term.Return(expr) => Term.Return(rec(expr))
+            case Term.Throw(expr) => Term.Throw(rec(expr))
+            case Term.Try(expr, catchp, finallyp) => Term.Try(rec(expr), catchp, finallyp.map(rec))
+            case Term.TryWithHandler(expr, catchp, finallyp) => Term.TryWithHandler(rec(expr), rec(catchp), finallyp.map(rec))
+            case Term.Tuple(args) => Term.Tuple(args.map(rec))
+            case Term.While(expr, body) => Term.While(rec(expr), rec(body))
+            case Term.Select(qual, name) => Term.Select(rec(qual), name)
+            case xml: Term.Xml => sys.error("XMLs are unsupported")
+            case name: Term.Name => name
+            case other => other
+          }
+      }
+    }
+    rec(toDesugar)
+  }
 
   def evalDefnVal(
     definition: Defn.Val,
@@ -821,16 +896,18 @@ object Engine {
               case _ =>
                 val runtimeName = toRuntimeName(name.value)
                 val allFuns = classOf[BoxesRunTime].getDeclaredMethods.filter(_.getName == runtimeName)
-                allFuns.toList match {
-                  case fun :: _ =>
-                    val result = fun.invoke(null, (value +: argValues).asInstanceOf[Seq[AnyRef]]: _*)
-                    val ref    = InterpreterJvmRef(null)
-                    (ref, env.extend(ref, InterpreterPrimitive(result)))
-                  case _ =>
+                try {
+                  val fun = allFuns.head
+                  val result = fun.invoke(null, (value +: argValues).asInstanceOf[Seq[AnyRef]]: _*)
+                  val ref = InterpreterJvmRef(null)
+                  (ref, env.extend(ref, InterpreterPrimitive(result)))
+                } catch {
+                  case _: InvocationTargetException | _: NoSuchElementException =>
                     import scala.reflect.runtime.{universe => ru}
+                    val javaName = toJavaName(name.value)
                     val m      = ru.runtimeMirror(getClass.getClassLoader)
                     val im = m.reflect(value)
-                    val method = im.symbol.typeSignature.member(ru.TermName(name.value))
+                    val method = im.symbol.typeSignature.member(ru.TermName(javaName))
                     val newValue = InterpreterWrappedJvm(im.reflectMethod(method.asMethod)(argValues: _*))
                     val newRef = InterpreterJvmRef(null)
                     (newRef, resEnv.extend(newRef, newValue))
@@ -952,7 +1029,7 @@ object Engine {
   def evalName(
     name: Term.Name,
     env: Env
-  )(implicit mirror: ScalametaMirror): (InterpreterRef, Env) =
+  )(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
     env.stack.head.get(name.symbol) match {
       case Some(ref) =>
         (ref, env)
@@ -962,7 +1039,7 @@ object Engine {
             case Success(obj) =>
               obj.fields.get(name.symbol) match {
                 case Some(ref) => return (ref, env)
-                case _         =>
+                case _ =>
               }
             case Failure(_) =>
               sys.error("Illegal state")
@@ -970,6 +1047,7 @@ object Engine {
         }
         sys.error(s"Unknown reference $name")
     }
+  }
 
   def evalBlock(
     block: Term.Block,
@@ -1010,6 +1088,28 @@ object Engine {
     case t"Boolean" => InterpreterRef.wrap(false, env, tpe)
     case t"Unit"    => InterpreterRef.wrap((), env, tpe)
     case _          => InterpreterRef.wrap(null, env, tpe)
+  }
+  
+  def toJavaName(name: String): String = {
+    name
+      .replaceAllLiterally("=", "$eq")
+      .replaceAllLiterally(">", "$greater")
+      .replaceAllLiterally("<", "$less")
+      .replaceAllLiterally("+", "$plus")
+      .replaceAllLiterally("-", "$minus")
+      .replaceAllLiterally("*", "$times")
+      .replaceAllLiterally("/", "div")
+      .replaceAllLiterally("!", "$bang")
+      .replaceAllLiterally("@", "$at")
+      .replaceAllLiterally("#", "$hash")
+      .replaceAllLiterally("%", "$percent")
+      .replaceAllLiterally("^", "$up")
+      .replaceAllLiterally("&", "$amp")
+      .replaceAllLiterally("~", "$tilde")
+      .replaceAllLiterally("?", "$qmark")
+      .replaceAllLiterally("|", "$bar")
+      .replaceAllLiterally("\\", "$bslash")
+      .replaceAllLiterally(":", "$colon")
   }
 
   def toRuntimeName(name: String): String = name match {

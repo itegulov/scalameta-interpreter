@@ -61,6 +61,8 @@ object ScalametaMirror {
         case Term.Name("oax") => Symbol.Global(OA, Signature.Term("oax"))
         case Term.Name("fooOAI") => Symbol.Global(OA, Signature.Method("fooOAI", "(I)I"))
         // Predef
+        case Term.Name("scala") => Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala"))
+        case Term.Name("Predef") => Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Term("Predef"))
         case Term.Name("s") => StringInterpolationS
         case Type.Name("Double") => Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Type("Double"))
         case Type.Name("Int") => Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Type("Int"))
@@ -89,6 +91,15 @@ object ScalametaMirror {
         case Term.Name("__interpreterMatchX__") => Symbol.Local("__interpreterMatchX__")
         case other => mirror(other)
       }
+    }
+  }
+
+  implicit class ScalametaSugar(tree: Term)(implicit mirror: ScalametaMirror) {
+    def sugar: Option[Term] = tree match {
+      case Lit.String("implicit") 
+        if tree.parent.get.structure != Term.Apply(Term.Name("augmentString"), List(Lit.String("implicit"))).structure =>
+        Some(Term.Apply(Term.Name("augmentString"), List(Term.Name("*"))))
+      case _ => None
     }
   }
 }
