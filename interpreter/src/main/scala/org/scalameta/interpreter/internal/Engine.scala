@@ -96,7 +96,7 @@ object Engine {
     val (res, env1) = eval(definition.rhs, env)
     definition.parent match {
       case Some(Template(_, _, _, _)) =>
-        val (_, ref) = env.thisContext.head
+        val (_, ref) = env.thisContext.last
         var resObj   = env1.heap(ref).asInstanceOf[InterpreterObject]
         for (pat <- definition.pats) {
           pat match {
@@ -128,7 +128,7 @@ object Engine {
     }
     definition.parent match {
       case Some(Template(_, _, _, _)) =>
-        val (_, ref) = env.thisContext.head
+        val (_, ref) = env.thisContext.last
         var resObj   = env1.heap(ref).asInstanceOf[InterpreterObject]
         for (pat <- definition.pats) {
           pat match {
@@ -155,7 +155,7 @@ object Engine {
   )(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
     definition.parent match {
       case Some(Template(_, _, _, _)) =>
-        val (_, ref) = env.thisContext.head
+        val (_, ref) = env.thisContext.last
         val obj      = env.heap(ref).asInstanceOf[InterpreterObject]
         val funRef   = InterpreterDefinedPrefunctionRef(definition.paramss, definition.tparams, definition.body, definition.name.symbol, env)
         val newObj   = obj.extend(definition.name.symbol, funRef)

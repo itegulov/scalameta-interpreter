@@ -133,7 +133,7 @@ final case class InterpreterCtorRef(
 )(implicit mirror: ScalametaMirror) extends InterpreterRef {
   def applyRec(argRefss: List[List[InterpreterRef]], callSiteEnv: Env): (InterpreterRef, Env) = {
     argRefss match {
-      case Nil             => sys.error("Invalid state")
+      case Nil             => apply(Nil, callSiteEnv)
       case argRefs :: Nil  => apply(argRefs, callSiteEnv)
       case argRefs :: tailRefs => 
         val (constructorRef, newEnv) = apply(argRefs, callSiteEnv)

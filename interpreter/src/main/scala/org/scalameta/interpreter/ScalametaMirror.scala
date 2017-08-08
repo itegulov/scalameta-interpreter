@@ -20,6 +20,7 @@ object ScalametaMirror {
   val emptySymbol = Symbol.Global(Symbol.None, Signature.Term("_empty_"))
   val A = Symbol.Global(emptySymbol, Signature.Type("A"))
   val B = Symbol.Global(emptySymbol, Signature.Type("B"))
+  val C = Symbol.Global(emptySymbol, Signature.Type("C"))
   val OA = Symbol.Global(emptySymbol, Signature.Term("OA"))
 
   implicit class ScalametaSymbol(tree: Tree)(implicit mirror: ScalametaMirror) {
@@ -49,6 +50,12 @@ object ScalametaMirror {
         case Term.Name("b") => Symbol.Local("b")
         case Term.Name("b1") => Symbol.Global(B, Signature.TermParameter("b1"))
         case Term.Name("b2") => Symbol.Global(B, Signature.TermParameter("b2"))
+        // C
+        case Type.Name("C") => C
+        case Term.Name("c") => Symbol.Local("c")
+        case Term.Name("c1") => Symbol.Global(C, Signature.TermParameter("c1"))
+        case Term.Name("c2") => Symbol.Global(C, Signature.TermParameter("c2"))
+        case Term.Name("fooCA") => Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_empty_")), Signature.Type("C")), Signature.Method("fooCA", "()LA;"))
         // OA
         case Term.Name("OA") => OA
         case Term.Name("oax") => Symbol.Global(OA, Signature.Term("oax"))
