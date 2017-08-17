@@ -15,6 +15,8 @@ import scala.meta._
 import scala.runtime.BoxesRunTime
 import scala.util.{Failure, Success, Try}
 
+import scala.reflect.runtime.{universe => ru}
+
 object Engine {
   private val logger = Logger[Engine.type]
 
@@ -183,10 +185,8 @@ object Engine {
       case _ =>
         var resEnv = env1
         for (pat <- definition.pats) {
-          pat match {
-            case Pat.Var(name) =>
-              resEnv = resEnv.extend(name.symbol, res)
-          }
+          val (_, newEnv) = evalPattern(res, pat, resEnv)
+          resEnv = newEnv
         }
         InterpreterRef.wrap((), resEnv, t"Unit")
     }
@@ -568,7 +568,42 @@ object Engine {
           InterpreterRef.wrap(false, patEnv, t"Boolean")
         }
       case Pat.Extract(fun, args) =>
-        ???
+        fun match {
+          case name: Term.Name =>
+            val m = ru.runtimeMirror(getClass.getClassLoader)
+            metaToReflect(name.symbol, m) match {
+              case (_, module: ru.ModuleSymbol) =>
+                val im = m.reflectModule(module)
+                val moduleInstanceMirror = m.reflect(im.instance)
+                val value = toMatch.reify(env)
+
+                if (module.typeSignature.member(ru.TermName("unapplySeq")) != ru.NoSymbol) {
+                  val method           = module.typeSignature.member(ru.TermName("unapplySeq"))
+                  val unapplyOptResult = moduleInstanceMirror.reflectMethod(method.asMethod)(value)
+                  unapplyOptResult match {
+                    case Some(unapplyResult: Seq[_]) if unapplyResult.length == args.length =>
+                      evalPatterns(unapplyResult, args, env)
+                    case Some(_) | None => InterpreterRef.wrap(false, env, t"Boolean")
+                    case _ => sys.error(s"Expected Option[Seq[T]] from `unapplySeq` invocation, but got $unapplyOptResult")
+                  }
+                } else {
+                  val method           = module.typeSignature.member(ru.TermName("unapply"))
+                  val unapplyOptResult = moduleInstanceMirror.reflectMethod(method.asMethod)(value)
+                  unapplyOptResult match {
+                    case Some(unapplyResult) =>
+                      unapplyResult match {
+                        case Tuple1(v1) => evalPatterns(Seq(v1), args, env)
+                        case Tuple2(v1, v2) => evalPatterns(Seq(v1, v2), args, env)
+                        // TODO: code generate other cases as well
+                        case v if args.length == 1 => evalPatterns(Seq(v), args, env)
+                        case _ => sys.error("Expected tuple or raw value for one argument")
+                      }
+                    case None => InterpreterRef.wrap(false, env, t"Boolean")
+                    case _ => sys.error(s"Expected Option[T] from `unapply` invocation, but got $unapplyOptResult")
+                  }
+                }
+            }
+        }
       case Pat.ExtractInfix(lhs, op, rhs) =>
         ???
       case Pat.Interpolate(prefix, parts, args) =>
@@ -903,13 +938,12 @@ object Engine {
                   (ref, env.extend(ref, InterpreterPrimitive(result)))
                 } catch {
                   case _: InvocationTargetException | _: NoSuchElementException =>
-                    import scala.reflect.runtime.{universe => ru}
                     val javaName = toJavaName(name.value)
-                    val m      = ru.runtimeMirror(getClass.getClassLoader)
-                    val im = m.reflect(value)
-                    val method = im.symbol.typeSignature.member(ru.TermName(javaName))
+                    val m        = ru.runtimeMirror(getClass.getClassLoader)
+                    val im       = m.reflect(value)
+                    val method   = im.symbol.typeSignature.member(ru.TermName(javaName))
                     val newValue = InterpreterWrappedJvm(im.reflectMethod(method.asMethod)(argValues: _*))
-                    val newRef = InterpreterJvmRef(null)
+                    val newRef   = InterpreterJvmRef(null)
                     (newRef, resEnv.extend(newRef, newValue))
                 }
             }
@@ -954,29 +988,12 @@ object Engine {
           case None =>
             import scala.reflect.runtime.{universe => ru}
             val m      = ru.runtimeMirror(getClass.getClassLoader)
-            def metaToReflect(s: Symbol): (ru.Symbol, ru.Symbol) = s match {
-              case Symbol.Global(Symbol.None, Signature.Term("_root_")) =>
-                (null, m.staticPackage("_root_"))
-              case Symbol.Global(owner, Signature.Term(termName)) =>
-                val ownerModule = m.staticPackage(owner.syntax.init)
-                val im = m.reflectModule(ownerModule)
-                (ownerModule, im.symbol.info.decl(ru.TermName(termName)))
-                
-              case Symbol.Global(owner, Signature.Method(methodName, jvmSignature)) =>
-                val ownerModule = m.staticModule(owner.syntax.init)
-                val im = m.reflectModule(ownerModule)
-                val alternatives =
-                  im.symbol.info.member(ru.TermName(methodName)).asTerm.alternatives
-                    .map(_.asMethod)
-                    .filter(_.paramLists.head.size == argRefs.size) // FIXME: add proper argument type check
-                (ownerModule, alternatives.head)
-            }
             val argsValues = argRefs.map(resEnv.heap.apply).map {
               case InterpreterPrimitive(value)  => value
               case InterpreterObject(_, fields) => InterpreterDynamic(fields)
               case InterpreterWrappedJvm(value) => value
             }
-            metaToReflect(name.symbol) match {
+            metaToReflect(name.symbol, m) match {
               case (owner: ru.ModuleSymbol, method: ru.MethodSymbol) =>
                 val im = m.reflectModule(owner)
                 val objScalametaMirror = m.reflect(im.instance)
@@ -1131,5 +1148,23 @@ object Engine {
     case "scala.Int"    => "java.lang.Integer"
     case "scala.Double" => "java.lang.Double"
     case x              => x
+  }
+
+  def metaToReflect(s: Symbol, m: ru.Mirror): (ru.Symbol, ru.Symbol) = s match {
+    case Symbol.Global(Symbol.None, Signature.Term("_root_")) =>
+      (null, m.staticPackage("_root_"))
+    case Symbol.Global(owner, Signature.Term(termName)) =>
+      val ownerModule = m.staticPackage(owner.syntax.init)
+      val im = m.reflectModule(ownerModule)
+      (ownerModule, im.symbol.info.decl(ru.TermName(termName)))
+
+    case Symbol.Global(owner, Signature.Method(methodName, jvmSignature)) =>
+      val ownerModule = m.staticModule(owner.syntax.init)
+      val im = m.reflectModule(ownerModule)
+      val alternatives =
+        im.symbol.info.member(ru.TermName(methodName)).asTerm.alternatives
+          .map(_.asMethod)
+//          .filter(_.paramLists.head.size == argRefs.size) // FIXME: add proper argument type check
+      (ownerModule, alternatives.head)
   }
 }

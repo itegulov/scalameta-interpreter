@@ -155,4 +155,61 @@ class ScalaMatchSpec extends ScalametaInterpreterSpec {
          }
        """, 2, Seq())
   }
+
+  it should "match Seqs" in {
+    checkCode(
+      q"""
+         Seq(1) match {
+           case Seq(x)    => 1
+           case Seq(x, y) => 2
+           case _         => -1
+         }
+       """, 1, Seq())
+    checkCode(
+      q"""
+         Seq(1, 2) match {
+           case Seq(x)    => 1
+           case Seq(x, y) => 2
+           case _         => -1
+         }
+       """, 2, Seq())
+  }
+
+  ignore should "match Options" in {
+    checkCode(
+      q"""
+         None match {
+           case None    => 1
+           case Some(x) => 2
+           case _       => -1
+         }
+       """, 1, Seq())
+    checkCode(
+      q"""
+         Some(1) match {
+           case None    => 1
+           case Some(x) => 2
+           case _       => -1
+         }
+       """, 2, Seq())
+  }
+
+  ignore should "be able to destruct List through ::" in {
+    checkCode(
+      q"""
+         List(1) match {
+           case x :: Nil => 1
+           case x :: y   => 2
+           case _        => -1
+         }
+       """, 1, Seq())
+    checkCode(
+      q"""
+         List(1, 2) match {
+           case x :: Nil => 1
+           case x :: y   => 2
+           case _        => -1
+         }
+       """, 2, Seq())
+  }
 }
