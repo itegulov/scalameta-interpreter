@@ -12,9 +12,9 @@ import scala.annotation.tailrec
 import scala.collection.immutable.ListMap
 import scala.collection.mutable.ArrayBuffer
 import scala.meta._
+import scala.reflect.NameTransformer
 import scala.runtime.BoxesRunTime
 import scala.util.{Failure, Success, Try}
-
 import scala.reflect.runtime.{universe => ru}
 
 object Engine {
@@ -947,10 +947,9 @@ object Engine {
                   (ref, env.extend(ref, InterpreterPrimitive(result)))
                 } catch {
                   case _: InvocationTargetException | _: NoSuchElementException =>
-                    val javaName = toJavaName(name.value)
                     val m        = ru.runtimeMirror(getClass.getClassLoader)
                     val im       = m.reflect(value)
-                    val method   = im.symbol.typeSignature.member(ru.TermName(javaName))
+                    val method   = im.symbol.typeSignature.member(ru.TermName(NameTransformer.encode(name.value)))
                     val newValue = InterpreterWrappedJvm(im.reflectMethod(method.asMethod)(argValues: _*))
                     val newRef   = InterpreterJvmRef(null)
                     (newRef, resEnv.extend(newRef, newValue))
@@ -1115,28 +1114,6 @@ object Engine {
     case t"Unit"    => InterpreterRef.wrap((), env, tpe)
     case _          => InterpreterRef.wrap(null, env, tpe)
   }
-  
-  def toJavaName(name: String): String = {
-    name
-      .replaceAllLiterally("=", "$eq")
-      .replaceAllLiterally(">", "$greater")
-      .replaceAllLiterally("<", "$less")
-      .replaceAllLiterally("+", "$plus")
-      .replaceAllLiterally("-", "$minus")
-      .replaceAllLiterally("*", "$times")
-      .replaceAllLiterally("/", "div")
-      .replaceAllLiterally("!", "$bang")
-      .replaceAllLiterally("@", "$at")
-      .replaceAllLiterally("#", "$hash")
-      .replaceAllLiterally("%", "$percent")
-      .replaceAllLiterally("^", "$up")
-      .replaceAllLiterally("&", "$amp")
-      .replaceAllLiterally("~", "$tilde")
-      .replaceAllLiterally("?", "$qmark")
-      .replaceAllLiterally("|", "$bar")
-      .replaceAllLiterally("\\", "$bslash")
-      .replaceAllLiterally(":", "$colon")
-  }
 
   def toRuntimeName(name: String): String = name match {
     case "&&" => "takeConditionalAnd"
@@ -1165,12 +1142,12 @@ object Engine {
     case Symbol.Global(owner, Signature.Term(termName)) =>
       val ownerModule = m.staticPackage(owner.syntax.init)
       val im = m.reflectModule(ownerModule)
-      (ownerModule, im.symbol.info.member(ru.TermName(toJavaName(termName))))
+      (ownerModule, im.symbol.info.member(ru.TermName(NameTransformer.encode(termName))))
     case Symbol.Global(owner, Signature.Method(methodName, jvmSignature)) =>
       val ownerModule = m.staticModule(owner.syntax.init)
       val im = m.reflectModule(ownerModule)
       val alternatives =
-        im.symbol.info.member(ru.TermName(toJavaName(methodName))).asTerm.alternatives
+        im.symbol.info.member(ru.TermName(NameTransformer.encode(methodName))).asTerm.alternatives
           .map(_.asMethod)
 //          .filter(_.paramLists.head.size == argRefs.size) // FIXME: add proper argument type check
       (ownerModule, alternatives.head)
