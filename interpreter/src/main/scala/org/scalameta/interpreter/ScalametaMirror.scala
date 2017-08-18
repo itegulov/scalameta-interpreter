@@ -102,6 +102,7 @@ object ScalametaMirror {
   implicit class ScalametaSymbolFlags(symbol: Symbol)(implicit mirror: ScalametaMirror) {
     def isObject: Boolean = symbol match {
       case Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Term("collection")), Signature.Term("immutable")), Signature.Term("Nil")) => true
+      case Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Term("None")) => true
       case _ => false
     }
   }

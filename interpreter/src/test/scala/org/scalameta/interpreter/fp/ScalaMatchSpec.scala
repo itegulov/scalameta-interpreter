@@ -175,7 +175,7 @@ class ScalaMatchSpec extends ScalametaInterpreterSpec {
        """, 2, Seq())
   }
 
-  ignore should "match Options" in {
+  it should "match Options" in {
     checkCode(
       q"""
          None match {

@@ -1055,22 +1055,33 @@ object Engine {
     name: Term.Name,
     env: Env
   )(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
-    env.stack.head.get(name.symbol) match {
-      case Some(ref) =>
-        (ref, env)
-      case None =>
-        for ((_, classRef) <- env.thisContext) {
-          Try(env.heap(classRef).asInstanceOf[InterpreterObject]) match {
-            case Success(obj) =>
-              obj.fields.get(name.symbol) match {
-                case Some(ref) => return (ref, env)
-                case _ =>
-              }
-            case Failure(_) =>
-              sys.error("Illegal state")
+    if (name.symbol.isObject) {
+      val m = ru.runtimeMirror(getClass.getClassLoader)
+      metaToReflect(name.symbol, m) match {
+        case (_, module: ru.ModuleSymbol) =>
+          val im = m.reflectModule(module)
+          val jvmValue = InterpreterWrappedJvm(im.instance)
+          val jvmRef = InterpreterJvmRef(null)
+          (jvmRef, env.extend(jvmRef, jvmValue))
+      }
+    } else {
+      env.stack.head.get(name.symbol) match {
+        case Some(ref) =>
+          (ref, env)
+        case None =>
+          for ((_, classRef) <- env.thisContext) {
+            Try(env.heap(classRef).asInstanceOf[InterpreterObject]) match {
+              case Success(obj) =>
+                obj.fields.get(name.symbol) match {
+                  case Some(ref) => return (ref, env)
+                  case _ =>
+                }
+              case Failure(_) =>
+                sys.error("Illegal state")
+            }
           }
-        }
-        sys.error(s"Unknown reference $name")
+          sys.error(s"Unknown reference $name")
+      }
     }
   }
 
