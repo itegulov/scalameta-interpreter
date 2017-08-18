@@ -30,9 +30,10 @@ sealed trait InterpreterRef {
 
   def reifyPrimitive(env: Env): Any =
     env.heap.get(this) match {
-      case Some(InterpreterPrimitive(prim)) => prim
-      case Some(other)                      => sys.error(s"$other is not a primitive")
-      case None                             => sys.error("Illegal state")
+      case Some(InterpreterPrimitive(prim))  => prim
+      case Some(InterpreterWrappedJvm(prim)) => prim
+      case Some(other)                       => sys.error(s"$other is not a primitive")
+      case None                              => sys.error("Illegal state")
     }
 
   def reifyBoolean(env: Env): Boolean =
