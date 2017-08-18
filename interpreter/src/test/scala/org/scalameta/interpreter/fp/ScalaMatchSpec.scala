@@ -194,7 +194,7 @@ class ScalaMatchSpec extends ScalametaInterpreterSpec {
        """, 2, Seq())
   }
 
-  ignore should "be able to destruct List through ::" in {
+  it should "be able to destruct List through ::" in {
     checkCode(
       q"""
          List(1) match {

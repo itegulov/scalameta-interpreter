@@ -73,6 +73,8 @@ object ScalametaMirror {
         case Term.Name("Some") => Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Term("Some"))
         case Term.Name("None") => Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Term("None"))
         case Term.Name("Option") => Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Term("Option"))
+        case Term.Name("::") => Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Term("collection")), Signature.Term("immutable")), Signature.Term("::"))
+        case Term.Name("Nil") => Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Term("collection")), Signature.Term("immutable")), Signature.Term("Nil"))
         case Term.Name("augmentString") => Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Term("Predef")), Signature.Method("augmentString", "(Ljava/lang/String;)Ljava/lang/String;"))
         // Generic
         case Term.Name("equals") => AnyEquals
@@ -94,6 +96,13 @@ object ScalametaMirror {
         case Term.Name("__interpreterMatchX__") => Symbol.Local("__interpreterMatchX__")
         case other => mirror(other)
       }
+    }
+  }
+  
+  implicit class ScalametaSymbolFlags(symbol: Symbol)(implicit mirror: ScalametaMirror) {
+    def isObject: Boolean = symbol match {
+      case Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Term("collection")), Signature.Term("immutable")), Signature.Term("Nil")) => true
+      case _ => false
     }
   }
 

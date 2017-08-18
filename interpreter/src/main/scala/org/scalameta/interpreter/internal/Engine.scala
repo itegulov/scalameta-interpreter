@@ -605,7 +605,7 @@ object Engine {
             }
         }
       case Pat.ExtractInfix(lhs, op, rhs) =>
-        ???
+        evalPattern(toMatch, Pat.Extract(op, lhs +: rhs), env)
       case Pat.Interpolate(prefix, parts, args) =>
         ???
       case literal: Lit =>
@@ -616,7 +616,16 @@ object Engine {
           t"Boolean"
         )
       case name: Term.Name =>
-        InterpreterRef.wrap(true, env.extend(name.symbol, toMatch), t"Boolean")
+        if (name.symbol.isObject) {
+          val m = ru.runtimeMirror(getClass.getClassLoader)
+          metaToReflect(name.symbol, m) match {
+            case (_, module: ru.ModuleSymbol) =>
+              val im = m.reflectModule(module)
+              InterpreterRef.wrap(im.instance == toMatch.reify(env), env, t"Boolean")
+          }
+        } else {
+          InterpreterRef.wrap(true, env.extend(name.symbol, toMatch), t"Boolean")
+        }
       case Term.Select(qual, name) =>
         ???
       case Pat.Var(name) =>
@@ -1156,13 +1165,12 @@ object Engine {
     case Symbol.Global(owner, Signature.Term(termName)) =>
       val ownerModule = m.staticPackage(owner.syntax.init)
       val im = m.reflectModule(ownerModule)
-      (ownerModule, im.symbol.info.decl(ru.TermName(termName)))
-
+      (ownerModule, im.symbol.info.member(ru.TermName(toJavaName(termName))))
     case Symbol.Global(owner, Signature.Method(methodName, jvmSignature)) =>
       val ownerModule = m.staticModule(owner.syntax.init)
       val im = m.reflectModule(ownerModule)
       val alternatives =
-        im.symbol.info.member(ru.TermName(methodName)).asTerm.alternatives
+        im.symbol.info.member(ru.TermName(toJavaName(methodName))).asTerm.alternatives
           .map(_.asMethod)
 //          .filter(_.paramLists.head.size == argRefs.size) // FIXME: add proper argument type check
       (ownerModule, alternatives.head)

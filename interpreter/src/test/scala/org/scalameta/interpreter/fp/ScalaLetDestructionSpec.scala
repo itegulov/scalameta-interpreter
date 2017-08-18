@@ -21,11 +21,11 @@ class ScalaLetDestructionSpec extends ScalametaInterpreterSpec with ScalametaInt
        """, 3, Seq())
   }
 
-  ignore should "be able to destruct List through ::" in {
+  it should "be able to destruct List through ::" in {
     checkCode(
       q"""
          val x :: y = List(1, 2)
-         x + y
+         x + y.head
        """, 3, Seq())
   }
 
