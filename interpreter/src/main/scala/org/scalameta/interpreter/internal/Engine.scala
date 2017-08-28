@@ -11,6 +11,7 @@ import org.scalameta.interpreter.internal.flow.exceptions.{InterpreterException,
 import scala.annotation.tailrec
 import scala.collection.immutable.ListMap
 import scala.collection.mutable.ArrayBuffer
+import scala.collection.immutable
 import scala.meta._
 import scala.reflect.NameTransformer
 import scala.runtime.BoxesRunTime
@@ -70,13 +71,21 @@ object Engine {
       case placeholder: Term.Placeholder     => ???
       case returnTerm: Term.Return           => evalReturn(returnTerm, env)
       case throwTerm: Term.Throw             => evalThrow(throwTerm, env)
-      case tryCatchTerm: Term.Try            => evalTry(tryCatchTerm, env)
-      case tryCatchTerm: Term.TryWithHandler => evalTryWithHandler(tryCatchTerm, env)
+      case tryCatchTerm: Term.TryWithCases   => evalTry(tryCatchTerm, env)
+      case tryCatchTerm: Term.TryWithTerm    => evalTryWithHandler(tryCatchTerm, env)
       case tuple: Term.Tuple                 => evalTuple(tuple, env)
       case whileTerm: Term.While             => evalWhile(whileTerm, env)
       case select: Term.Select               => evalSelect(select, env)
+      case update: Term.Update               => evalUpdate(update, env)
       case xml: Term.Xml                     => sys.error("XMLs are unsupported")
     }
+  
+  def evalUpdate(
+    update: Term.Update,
+    env: Env
+  )(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
+    evalApply(Term.Apply(Term.Select(update.fun, Term.Name("update")), update.argss.flatten :+ update.rhs), env)
+  }
 
   def evalDefn(
     definition: Defn,
@@ -93,44 +102,44 @@ object Engine {
       case defnType: Defn.Type     => InterpreterRef.wrap((), env, t"Unit") // Type aliases are already resolved by semantic API
     }
   
-  def replaceStar(term: Term, replaceWith: Term): Term = {
-    def rec(s: Term): Term = s match {
-      case Term.Apply(fun, args)                       => Term.Apply(rec(fun), args.map(rec))
-      case Term.ApplyInfix(lhs, op, targs, args)       => Term.ApplyInfix(rec(lhs), op, targs, args.map(rec))
-      case Term.ApplyUnary(op, arg)                    => Term.ApplyUnary(op, rec(arg))
-      case Term.ApplyType(fun, targs)                  => Term.ApplyType(rec(fun), targs)
-      case Term.Ascribe(expr, tpe)                     => Term.Ascribe(rec(expr), tpe)
-      case Term.Assign(lhs, rhs)                       => Term.Assign(rec(lhs), rec(rhs))
-      case Term.Do(body, expr)                         => Term.Do(rec(body), rec(expr))
-      case Term.Eta(expr)                              => Term.Eta(rec(expr))
-      case Term.For(enums, body)                       => Term.For(enums, rec(body))
-      case Term.ForYield(enums, body)                  => Term.ForYield(enums, rec(body))
-      case Term.Function(params, body)                 => Term.Function(params, rec(body))
-      case Term.If(cond, thenp, elsep)                 => Term.If(rec(cond), rec(thenp), rec(elsep))
-      case Term.Interpolate(prefix, parts, args)       => Term.Interpolate(prefix, parts, args.map(rec))
-      case Term.Match(expr, cases)                     => Term.Match(rec(expr), cases)
-      case Term.New(Init(tpe, name, argss))            => Term.New(Init(tpe, name, argss.map(_.map(rec))))
-      case Term.PartialFunction(cases)                 => Term.PartialFunction(cases)
-      case placeholder: Term.Placeholder               => placeholder
-      case Term.Return(expr)                           => Term.Return(rec(expr))
-      case Term.Throw(expr)                            => Term.Throw(rec(expr))
-      case Term.Try(expr, catchp, finallyp)            => Term.Try(rec(expr), catchp, finallyp.map(rec))
-      case Term.TryWithHandler(expr, catchp, finallyp) => Term.TryWithHandler(rec(expr), rec(catchp), finallyp.map(rec))
-      case Term.Tuple(args)                            => Term.Tuple(args.map(rec))
-      case Term.While(expr, body)                      => Term.While(rec(expr), rec(body))
-      case Term.Select(qual, name)                     => Term.Select(rec(qual), name)
-      case xml: Term.Xml                               => sys.error("XMLs are unsupported")
-      case Term.Name("*")                              => replaceWith
-      case name: Term.Name                             => name
+  def replaceStar(term: Tree, replaceWith: Term): Term = {
+    def rec(s: Tree): Term = s match {
+      case Term.Apply(fun, args)                           => Term.Apply(rec(fun), args.map(rec))
+      case Term.ApplyInfix(lhs, op, targs, args)           => Term.ApplyInfix(rec(lhs), op, targs, args.map(rec))
+      case Term.ApplyUnary(op, arg)                        => Term.ApplyUnary(op, rec(arg))
+      case Term.ApplyType(fun, targs)                      => Term.ApplyType(rec(fun), targs)
+      case Term.Ascribe(expr, tpe)                         => Term.Ascribe(rec(expr), tpe)
+      case Term.Assign(lhs, rhs)                           => Term.Assign(rec(lhs).asInstanceOf[Term.Ref], rec(rhs))
+      case Term.Do(body, expr)                             => Term.Do(rec(body), rec(expr))
+      case Term.Eta(expr)                                  => Term.Eta(rec(expr))
+      case Term.For(enums, body)                           => Term.For(enums, rec(body))
+      case Term.ForYield(enums, body)                      => Term.ForYield(enums, rec(body))
+      case Term.Function(params, body)                     => Term.Function(params, rec(body))
+      case Term.If(cond, thenp, elsep)                     => Term.If(rec(cond), rec(thenp), rec(elsep))
+      case Term.Interpolate(prefix, parts, args)           => Term.Interpolate(prefix, parts, args.map(rec))
+      case Term.Match(expr, cases)                         => Term.Match(rec(expr), cases)
+      case Term.New(Template(early, parents, self, stats)) => Term.New(Template(early.map(rec), parents, self, stats.map(_.map(rec))))
+      case Term.PartialFunction(cases)                     => Term.PartialFunction(cases)
+      case placeholder: Term.Placeholder                   => placeholder
+      case Term.Return(expr)                               => Term.Return(rec(expr))
+      case Term.Throw(expr)                                => Term.Throw(rec(expr))
+      case Term.TryWithCases(expr, catchp, finallyp)       => Term.TryWithCases(rec(expr), catchp, finallyp.map(rec))
+      case Term.TryWithTerm(expr, catchp, finallyp)        => Term.TryWithTerm(rec(expr), rec(catchp), finallyp.map(rec))
+      case Term.Tuple(args)                                => Term.Tuple(args.map(rec))
+      case Term.While(expr, body)                          => Term.While(rec(expr), rec(body))
+      case Term.Select(qual, name)                         => Term.Select(rec(qual), name)
+      case xml: Term.Xml                                   => sys.error("XMLs are unsupported")
+      case Term.Name("*")                                  => replaceWith
+      case name: Term.Name                                 => name
     }
     rec(term)
   }
   
-  def desugar(toDesugar: Term)(implicit mirror: ScalametaMirror): Term = {
-    def rec(s: Term): Term = {
+  def desugar(toDesugar: Tree)(implicit mirror: ScalametaMirror): Term = {
+    def rec(s: Tree): Term = {
       s.sugar match {
         case Some(sugar) =>
-          replaceStar(sugar, s)
+          replaceStar(sugar, s.asInstanceOf[Term])
         case None =>
           s match {
             case Term.Apply(fun, args) => Term.Apply(rec(fun), args.map(rec))
@@ -138,7 +147,7 @@ object Engine {
             case Term.ApplyUnary(op, arg) => Term.ApplyUnary(op, rec(arg))
             case Term.ApplyType(fun, targs) => Term.ApplyType(rec(fun), targs)
             case Term.Ascribe(expr, tpe) => Term.Ascribe(rec(expr), tpe)
-            case Term.Assign(lhs, rhs) => Term.Assign(rec(lhs), rec(rhs))
+            case Term.Assign(lhs, rhs) => Term.Assign(rec(lhs).asInstanceOf[Term.Ref], rec(rhs))
             case Term.Do(body, expr) => Term.Do(rec(body), rec(expr))
             case Term.Eta(expr) => Term.Eta(rec(expr))
             case Term.For(enums, body) => Term.For(enums, rec(body))
@@ -147,19 +156,19 @@ object Engine {
             case Term.If(cond, thenp, elsep) => Term.If(rec(cond), rec(thenp), rec(elsep))
             case Term.Interpolate(prefix, parts, args) => Term.Interpolate(prefix, parts, args.map(rec))
             case Term.Match(expr, cases) => Term.Match(rec(expr), cases)
-            case Term.New(Init(tpe, name, argss)) => Term.New(Init(tpe, name, argss.map(_.map(rec))))
+            case Term.New(Template(early, parents, self, stats)) => Term.New(Template(early.map(rec), parents, self, stats.map(_.map(rec))))
             case Term.PartialFunction(cases) => Term.PartialFunction(cases)
             case placeholder: Term.Placeholder => placeholder
             case Term.Return(expr) => Term.Return(rec(expr))
             case Term.Throw(expr) => Term.Throw(rec(expr))
-            case Term.Try(expr, catchp, finallyp) => Term.Try(rec(expr), catchp, finallyp.map(rec))
-            case Term.TryWithHandler(expr, catchp, finallyp) => Term.TryWithHandler(rec(expr), rec(catchp), finallyp.map(rec))
+            case Term.TryWithCases(expr, catchp, finallyp) => Term.TryWithCases(rec(expr), catchp, finallyp.map(rec))
+            case Term.TryWithTerm(expr, catchp, finallyp) => Term.TryWithTerm(rec(expr), rec(catchp), finallyp.map(rec))
             case Term.Tuple(args) => Term.Tuple(args.map(rec))
             case Term.While(expr, body) => Term.While(rec(expr), rec(body))
             case Term.Select(qual, name) => Term.Select(rec(qual), name)
             case xml: Term.Xml => sys.error("XMLs are unsupported")
             case name: Term.Name => name
-            case other => other
+            case other: Term => other
           }
       }
     }
@@ -177,7 +186,7 @@ object Engine {
         var resObj   = env1.heap(ref).asInstanceOf[InterpreterObject]
         for (pat <- definition.pats) {
           pat match {
-            case Pat.Var(termName) =>
+            case Pat.Var.Term(termName) =>
               resObj = resObj.extend(termName.symbol, res)
           }
         }
@@ -207,7 +216,7 @@ object Engine {
         var resObj   = env1.heap(ref).asInstanceOf[InterpreterObject]
         for (pat <- definition.pats) {
           pat match {
-            case Pat.Var(termName) =>
+            case Pat.Var.Term(termName) =>
               resObj = resObj.extend(termName.symbol, res)
           }
         }
@@ -216,7 +225,7 @@ object Engine {
         var resEnv = env1
         for (pat <- definition.pats) {
           pat match {
-            case Pat.Var(name) =>
+            case Pat.Var.Term(name) =>
               resEnv = resEnv.extend(name.symbol, res)
           }
         }
@@ -232,11 +241,11 @@ object Engine {
       case Some(Template(_, _, _, _)) =>
         val (_, ref) = env.thisContext.last
         val obj      = env.heap(ref).asInstanceOf[InterpreterObject]
-        val funRef   = InterpreterDefinedPrefunctionRef(definition.paramss, definition.tparams, definition.body, definition.name.symbol, env)
+        val funRef   = InterpreterDefinedPrefunctionRef(definition.paramss.map(_.toList).toList, definition.tparams.toList, definition.body, definition.name.symbol, env)
         val newObj   = obj.extend(definition.name.symbol, funRef)
         InterpreterRef.wrap((), env.extend(definition.name.symbol, funRef).extend(ref, newObj), t"Unit")
       case _ =>
-        val funRef = InterpreterDefinedPrefunctionRef(definition.paramss, definition.tparams, definition.body, definition.name.symbol, env)
+        val funRef = InterpreterDefinedPrefunctionRef(definition.paramss.map(_.toList).toList, definition.tparams.toList, definition.body, definition.name.symbol, env)
         InterpreterRef.wrap((), env.extend(definition.name.symbol, funRef), t"Unit")
     }
   }
@@ -253,20 +262,32 @@ object Engine {
     definition: Defn.Class,
     env: Env
   )(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
-    definition.templ.inits
-    val constructors = for (init <- definition.templ.inits) yield {
-      env.classTable.table.get(init.tpe.symbol) match {
-        case Some(classInfo) => (classInfo.constructor, init.argss)
-        case None            => sys.error(s"Unknown parent class: ${init.tpe}")
+    val constructors = for (init <- definition.templ.parents) yield {
+      init match {
+        case Ctor.Primary(_, name, paramss) =>
+          env.classTable.table.get(name.symbol) match {
+            case Some(classInfo) => (classInfo.constructor, paramss)
+            case None            => sys.error(s"Unknown parent class: $name")
+          }
+        case Ctor.Secondary(_, name, paramss, _) =>
+          env.classTable.table.get(name.symbol) match {
+            case Some(classInfo) => (classInfo.constructor, paramss)
+            case None            => sys.error(s"Unknown parent class: $name")
+          }
+        case Term.Apply(funName: Ctor.Ref.Name, args) =>
+          env.classTable.table.get(funName.symbol) match {
+            case Some(classInfo) => (classInfo.constructor, List(args))
+            case None            => sys.error(s"Unknown parent class: $funName")
+          }
       }
     }
     val ctorRef = InterpreterCtorRef(
       definition.name.symbol,
-      definition.ctor.paramss,
+      definition.ctor.paramss.map(_.toList).toList,
       null,
       definition.templ,
       env,
-      constructors
+      constructors.map { case (x, y) => (x, y.map(_.map(_.asInstanceOf[Term]).toList).toList) }.toList
     )
     val resEnv = env.addClass(definition.name.symbol, ClassInfo(ctorRef))
     InterpreterRef.wrap((), resEnv, t"Unit")
@@ -276,7 +297,7 @@ object Engine {
     definition: Defn.Object,
     env: Env
   )(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
-    val (_, env1) = eval(Term.Block(definition.templ.stats), env.pushFrame(Map.empty))
+    val (_, env1) = eval(Term.Block(definition.templ.stats.getOrElse(immutable.Seq.empty)), env.pushFrame(Map.empty))
     val obj = InterpreterObject(definition.name.symbol, env1.stack.head)
     val ref = InterpreterJvmRef(Type.Name(definition.name.value))
     val resEnv = Env(
@@ -386,7 +407,7 @@ object Engine {
   )(implicit mirror: ScalametaMirror): (InterpreterRef, Env) =
     (
       InterpreterDefinedFunctionRef(
-        List(function.params),
+        List(function.params.toList),
         null,
         function.body,
         env
@@ -409,7 +430,7 @@ object Engine {
           Try(rhsVal.asInstanceOf[Iterable[_]]) match {
             case Success(iterableRhs) =>
               pat match {
-                case Pat.Var(name) =>
+                case Pat.Var.Term(name) =>
                   var resEnv = rhsEnv
                   val result = ArrayBuffer.empty[Any]
                   for (oneRhs <- iterableRhs) {
@@ -439,7 +460,7 @@ object Engine {
         case Enumerator.Val(pat, rhs) :: tail =>
           val (rhsRef, rhsEnv) = eval(rhs, lEnv)
           pat match {
-            case Pat.Var(name) =>
+            case Pat.Var.Term(name) =>
               evalForYieldRec(tail, rhsEnv.extend(name.symbol, rhsRef))
           }
         case Nil =>
@@ -461,7 +482,7 @@ object Engine {
           Try(rhsVal.asInstanceOf[Iterable[_]]) match {
             case Success(iterableRhs) =>
               pat match {
-                case Pat.Var(name) =>
+                case Pat.Var.Term(name) =>
                   var resEnv = rhsEnv
                   for (oneRhs <- iterableRhs) {
                     val oneRhsRef = InterpreterJvmRef(null)
@@ -483,7 +504,7 @@ object Engine {
         case Enumerator.Val(pat, rhs) :: tail =>
           val (rhsRef, rhsEnv) = eval(rhs, lEnv)
           pat match {
-            case Pat.Var(name) =>
+            case Pat.Var.Term(name) =>
               evalForRec(tail, rhsEnv.extend(name.symbol, rhsRef))
           }
         case Nil =>
@@ -567,7 +588,7 @@ object Engine {
         } else {
           InterpreterRef.wrap(false, patEnv, t"Boolean")
         }
-      case Pat.Extract(fun, args) =>
+      case Pat.Extract(fun, _, args) =>
         fun match {
           case name: Term.Name =>
             val m = ru.runtimeMirror(getClass.getClassLoader)
@@ -582,7 +603,7 @@ object Engine {
                   val unapplyOptResult = moduleInstanceMirror.reflectMethod(method.asMethod)(value)
                   unapplyOptResult match {
                     case Some(unapplyResult: Seq[_]) if unapplyResult.length == args.length =>
-                      evalPatterns(unapplyResult, args, env)
+                      evalPatterns(unapplyResult, args.map(_.asInstanceOf[Pat]), env)
                     case Some(_) | None => InterpreterRef.wrap(false, env, t"Boolean")
                     case _ => sys.error(s"Expected Option[Seq[T]] from `unapplySeq` invocation, but got $unapplyOptResult")
                   }
@@ -592,10 +613,10 @@ object Engine {
                   unapplyOptResult match {
                     case Some(unapplyResult) =>
                       unapplyResult match {
-                        case Tuple1(v1) => evalPatterns(Seq(v1), args, env)
-                        case Tuple2(v1, v2) => evalPatterns(Seq(v1, v2), args, env)
+                        case Tuple1(v1) => evalPatterns(Seq(v1), args.map(_.asInstanceOf[Pat]), env)
+                        case Tuple2(v1, v2) => evalPatterns(Seq(v1, v2), args.map(_.asInstanceOf[Pat]), env)
                         // TODO: code generate other cases as well
-                        case v if args.length == 1 => evalPatterns(Seq(v), args, env)
+                        case v if args.length == 1 => evalPatterns(Seq(v), args.map(_.asInstanceOf[Pat]), env)
                         case _ => sys.error("Expected tuple or raw value for one argument")
                       }
                     case None => InterpreterRef.wrap(false, env, t"Boolean")
@@ -605,7 +626,7 @@ object Engine {
             }
         }
       case Pat.ExtractInfix(lhs, op, rhs) =>
-        evalPattern(toMatch, Pat.Extract(op, lhs +: rhs), env)
+        evalPattern(toMatch, Pat.Extract(op, List.empty, lhs +: rhs), env)
       case Pat.Interpolate(prefix, parts, args) =>
         ???
       case literal: Lit =>
@@ -628,7 +649,7 @@ object Engine {
         }
       case Term.Select(qual, name) =>
         ???
-      case Pat.Var(name) =>
+      case Pat.Var.Term(name) =>
         InterpreterRef.wrap(true, env.extend(name.symbol, toMatch), t"Boolean")
       case Pat.Tuple(args) =>
         Try(toMatch.reifyJvm(env)) match {
@@ -695,7 +716,7 @@ object Engine {
   }
 
   def evalTryWithHandler(
-    tryCatchTerm: Term.TryWithHandler,
+    tryCatchTerm: Term.TryWithTerm,
     env: Env
   )(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
     val (res, env1) = try {
@@ -713,7 +734,7 @@ object Engine {
   }
 
   def evalTry(
-    tryCatchTerm: Term.Try,
+    tryCatchTerm: Term.TryWithCases,
     env: Env
   )(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
     val (res, env1) = try {
@@ -772,7 +793,7 @@ object Engine {
     env: Env
   )(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
     var resEnv = env
-    for (arg <- template.stats) {
+    for (arg <- template.stats.getOrElse(Seq.empty)) {
       val (argRef, newEnv) = eval(arg, resEnv)
       resEnv = newEnv
       argRef
@@ -814,17 +835,19 @@ object Engine {
     newTerm: Term.New,
     env: Env
   )(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
-    var resEnv = env
-    val argRefs = for (args <- newTerm.init.argss) yield {
-      for (arg <- args) yield {
-        val (argRef, newEnv) = eval(arg, resEnv)
-        resEnv = newEnv
-        argRef
-      }
-    }
-    resEnv.classTable.table.get(newTerm.init.tpe.symbol) match {
-      case Some(classInfo) => classInfo.constructor.applyRec(argRefs, resEnv)
-      case None            => sys.error(s"Unknown class ${newTerm.init.tpe}")
+    val ctorCall = newTerm.templ.parents.head
+    ctorCall match {
+      case Term.Apply(className: Ctor.Ref.Name, argTerms) =>
+        var resEnv = env
+        val argRefs = for (arg <- argTerms) yield {
+          val (argRef, newEnv) = eval(arg, resEnv)
+          resEnv = newEnv
+          argRef
+        }
+        resEnv.classTable.table.get(className.symbol) match {
+          case Some(classInfo) => classInfo.constructor(argRefs.toList, resEnv)
+          case None            => sys.error(s"Unknown class $className")
+        }
     }
   }
 
@@ -904,7 +927,7 @@ object Engine {
                 Try(ref.asInstanceOf[InterpreterFunctionRef]) match {
                   case Success(fun) =>
                     try {
-                      fun.invoke(argRefs, env1.addThis(className, qualRef))
+                      fun.invoke(argRefs.toList, env1.addThis(className, qualRef))
                     } catch {
                       case ReturnException(retRef, retEnv) => (retRef, retEnv)
                     }
@@ -960,7 +983,7 @@ object Engine {
         resEnv.stack.head.get(name.symbol) match {
           case Some(funRef: InterpreterFunctionRef) =>
             try {
-              funRef.invoke(argRefs, resEnv)
+              funRef.invoke(argRefs.toList, resEnv)
             } catch {
               case ReturnException(retRef, retEnv) => (retRef, retEnv)
             }
@@ -972,7 +995,7 @@ object Engine {
                 fields.get(Term.Name("apply").symbol) match {
                   case Some(funRef: InterpreterFunctionRef) =>
                     try {
-                      funRef.invoke(argRefs, resEnv)
+                      funRef.invoke(argRefs.toList, resEnv)
                     } catch {
                       case ReturnException(retRef, retEnv) => (retRef, retEnv)
                     }
@@ -1106,9 +1129,9 @@ object Engine {
     case Lit.Float(value)   => InterpreterRef.wrap(value.toFloat, env, t"Float")
     case Lit.Double(value)  => InterpreterRef.wrap(value.toDouble, env, t"Double")
     case Lit.Boolean(value) => InterpreterRef.wrap(value, env, t"Boolean")
-    case Lit.Unit()         => InterpreterRef.wrap((), env, t"Unit")
+    case Lit.Unit(_)         => InterpreterRef.wrap((), env, t"Unit")
     case Lit.String(value)  => InterpreterRef.wrap(value, env, t"String")
-    case Lit.Null()         => InterpreterRef.wrap(null, env, t"Any")
+    case Lit.Null(_)         => InterpreterRef.wrap(null, env, t"Any")
     case Lit.Symbol(value)  => sys.error(s"Can not interpret symbol tree $literal")
     case _                  => sys.error(s"Can not interpret unrecognized tree $literal")
   }

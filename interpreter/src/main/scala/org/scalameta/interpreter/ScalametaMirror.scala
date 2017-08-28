@@ -36,7 +36,7 @@ object ScalametaMirror {
         case Term.Name("barI") => Symbol.Global(emptySymbol, Signature.Method("barI", "(I)I"))
         // A
         case Type.Name("A") => A
-        // case Ctor.Ref.Name("A") => Symbol.Global(A, Signature.Method("<init>", "(ID)V"))
+        case Ctor.Ref.Name("A") => A
         case Term.Name("a") => Symbol.Local("a")
         case Term.Name("a1") => Symbol.Global(A, Signature.TermParameter("a1"))
         case Term.Name("a2") => Symbol.Global(A, Signature.TermParameter("a2"))
@@ -46,12 +46,13 @@ object ScalametaMirror {
         case Term.Name("fooAI") => Symbol.Global(A, Signature.Method("fooAI", "(I)I"))
         // B
         case Type.Name("B") => B
-        // case Ctor.Ref.Name("B") => Symbol.Global(B, Signature.Method("<init>", "(ID)V"))
+        case Ctor.Ref.Name("B") => B
         case Term.Name("b") => Symbol.Local("b")
         case Term.Name("b1") => Symbol.Global(B, Signature.TermParameter("b1"))
         case Term.Name("b2") => Symbol.Global(B, Signature.TermParameter("b2"))
         // C
         case Type.Name("C") => C
+        case Ctor.Ref.Name("C") => C
         case Term.Name("c") => Symbol.Local("c")
         case Term.Name("c1") => Symbol.Global(C, Signature.TermParameter("c1"))
         case Term.Name("c2") => Symbol.Global(C, Signature.TermParameter("c2"))
@@ -107,7 +108,7 @@ object ScalametaMirror {
     }
   }
 
-  implicit class ScalametaSugar(tree: Term)(implicit mirror: ScalametaMirror) {
+  implicit class ScalametaSugar(tree: Tree)(implicit mirror: ScalametaMirror) {
     def sugar: Option[Term] = tree match {
       case Lit.String("implicit") 
         if tree.parent.get.structure != Term.Apply(Term.Name("augmentString"), List(Lit.String("implicit"))).structure =>
