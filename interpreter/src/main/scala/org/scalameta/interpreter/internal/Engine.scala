@@ -355,7 +355,7 @@ object Engine {
             case (xh :: xs, yh :: ys) => merge(xs, ys, acc ++ Seq(xh, yh))
           }
 
-        val result = merge(stringLiteralResults.toList, stringResults.toList, List.empty).mkString("")
+        val result = merge(stringLiteralResults, stringResults, List.empty).mkString("")
         InterpreterRef
           .wrap(result, resEnv, t"String")
       case _ => sys.error(s"Unknown interpolation prefix ${interpolate.prefix}")
@@ -804,7 +804,7 @@ object Engine {
         val symbol = m.symbol.typeSignature.member(TermName(select.name.value))
         val result = m.reflectMethod(symbol.asMethod)()
         val ref    = InterpreterJvmRef(null)
-        (ref, env.extend(ref, InterpreterPrimitive(result)))
+        (ref, env.extend(ref, InterpreterWrappedJvm(result)))
       case None =>
         sys.error("Illegal state")
     }
