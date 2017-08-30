@@ -54,36 +54,40 @@ abstract class InterpreterFunctionRef extends InterpreterRef {
   def invoke(argRefs: List[InterpreterRef], callSiteEnv: Env): (InterpreterRef, Env)
 }
 
-final case class InterpreterDefinedPrefunctionRef (
+final case class InterpreterDefinedPrefunctionRef(
   params: List[List[Term.Param]],
   tparams: List[Type.Param],
   body: Term,
   symbol: Symbol,
   capturedEnv: Env
-)(implicit mirror: ScalametaMirror) extends InterpreterFunctionRef {
-  override def invoke(argRefs: List[InterpreterRef], callSiteEnv: Env): (InterpreterRef, Env) = {
+)(implicit mirror: ScalametaMirror)
+    extends InterpreterFunctionRef {
+  override def invoke(argRefs: List[InterpreterRef], callSiteEnv: Env): (InterpreterRef, Env) =
     InterpreterDefinedFunctionRef(
       params,
       tparams,
       body,
       capturedEnv.extend(symbol, this)
     ).invoke(argRefs, callSiteEnv)
-  }
 
   override def tpe: Type = ???
 }
 
-final case class InterpreterDefinedFunctionRef (
+final case class InterpreterDefinedFunctionRef(
   params: List[List[Term.Param]],
   tparams: List[Type.Param],
   body: Term,
   capturedEnv: Env
-)(implicit mirror: ScalametaMirror) extends InterpreterFunctionRef {
+)(implicit mirror: ScalametaMirror)
+    extends InterpreterFunctionRef {
   override def invoke(argRefs: List[InterpreterRef], callSiteEnv: Env): (InterpreterRef, Env) = {
     val env1 = callSiteEnv.pushFrame(capturedEnv.stack.head)
     params match {
-      case fParams :: Nil if argRefs.size <= fParams.size && fParams.drop(argRefs.size).forall(_.default.isDefined) =>
-        var resEnv = env1
+      case fParams :: Nil
+          if argRefs.size <= fParams.size && fParams
+            .drop(argRefs.size)
+            .forall(_.default.isDefined) =>
+        var resEnv   = env1
         val defaults = fParams.drop(argRefs.size).map(_.default.get)
         val defaultRefs = for (default <- defaults) yield {
           val (res, newEnv) = Engine.eval(default, resEnv)
@@ -95,8 +99,11 @@ final case class InterpreterDefinedFunctionRef (
           .foldLeft(resEnv)((tmpEnv, argRef) => tmpEnv.extend(argRef._1.name.symbol, argRef._2))
         val (res, env3) = Engine.eval(body, env2)
         (res, callSiteEnv.extendHeap(env3.heap))
-      case fParams :: fParamss if argRefs.size <= fParams.size && fParams.drop(argRefs.size).forall(_.default.isDefined) =>
-        var resEnv = env1
+      case fParams :: fParamss
+          if argRefs.size <= fParams.size && fParams
+            .drop(argRefs.size)
+            .forall(_.default.isDefined) =>
+        var resEnv   = env1
         val defaults = fParams.drop(argRefs.size).map(_.default.get)
         val defaultRefs = for (default <- defaults) yield {
           val (res, newEnv) = Engine.eval(default, resEnv)
@@ -131,17 +138,17 @@ final case class InterpreterCtorRef(
   body: Tree,
   capturedEnv: Env,
   parentConstructors: List[(InterpreterCtorRef, List[List[Term]])]
-)(implicit mirror: ScalametaMirror) extends InterpreterRef {
-  def applyRec(argRefss: List[List[InterpreterRef]], callSiteEnv: Env): (InterpreterRef, Env) = {
+)(implicit mirror: ScalametaMirror)
+    extends InterpreterRef {
+  def applyRec(argRefss: List[List[InterpreterRef]], callSiteEnv: Env): (InterpreterRef, Env) =
     argRefss match {
-      case Nil             => apply(Nil, callSiteEnv)
-      case argRefs :: Nil  => apply(argRefs, callSiteEnv)
-      case argRefs :: tailRefs => 
+      case Nil            => apply(Nil, callSiteEnv)
+      case argRefs :: Nil => apply(argRefs, callSiteEnv)
+      case argRefs :: tailRefs =>
         val (constructorRef, newEnv) = apply(argRefs, callSiteEnv)
         constructorRef.asInstanceOf[InterpreterCtorRef].applyRec(tailRefs, newEnv)
     }
-  }
-  
+
   def apply(argRefs: List[InterpreterRef], callSiteEnv: Env): (InterpreterRef, Env) = {
     val env1 = callSiteEnv.pushFrame(capturedEnv.stack.head)
     params match {
@@ -150,36 +157,56 @@ final case class InterpreterCtorRef(
           .zip(argRefs)
           .foldLeft(env1)((tmpEnv, argRef) => tmpEnv.extend(argRef._1.name.symbol, argRef._2))
         val parentObjectsAndEnvs = for ((parentConstructor, argss) <- parentConstructors) yield {
-          val (ref, newEnv) = parentConstructor.applyRec(argss.map(_.map(_.asInstanceOf[Term.Name].symbol).map(env2.stack.head.apply)), env1)
+          val (ref, newEnv) = parentConstructor.applyRec(
+            argss.map(_.map(_.asInstanceOf[Term.Name].symbol).map(env2.stack.head.apply)),
+            env1
+          )
           (newEnv.heap(ref).asInstanceOf[InterpreterObject], newEnv)
         }
         val (parentObjects, parentEnvs) = parentObjectsAndEnvs.unzip
-        val ref       = InterpreterJvmRef(null)
-        val obj       = InterpreterObject(className, env2.stack.head ++ parentObjects.flatMap(_.fields)) // FIXME: not really env2.stack, but only ctor args
-        val newStack = capturedEnv.stack
-        val newHeap = env2.heap + (ref -> obj) ++ parentEnvs.flatMap(_.heap)
-        val newThisContext = env2.thisContext + (className -> ref)
-        val (_, env3) = Engine.eval(body, Env(newStack, newHeap, env2.classTable, newThisContext))
-        val finalHeap   = callSiteEnv.heap ++ env3.heap
-        (ref, Env(callSiteEnv.stack, finalHeap, callSiteEnv.classTable, callSiteEnv.thisContext))
+        val ref                         = InterpreterJvmRef(null)
+        val obj                         = InterpreterObject(className, env2.stack.head ++ parentObjects.flatMap(_.fields)) // FIXME: not really env2.stack, but only ctor args
+        val newStack                    = capturedEnv.stack
+        val newHeap                     = env2.heap + (ref -> obj) ++ parentEnvs.flatMap(_.heap)
+        val newThisContext              = env2.thisContext + (className -> ref)
+        val (_, env3)                   = Engine.eval(body, Env(newStack, newHeap, env2.classTable, newThisContext))
+        val finalHeap                   = callSiteEnv.heap ++ env3.heap
+        (
+          ref,
+          Env(
+            callSiteEnv.stack,
+            finalHeap,
+            callSiteEnv.classTable,
+            callSiteEnv.thisContext
+          )
+        )
       case fParams :: fParamss if fParams.size == argRefs.size =>
         sys.error("Can not process carried constructor")
       case fParams :: _ =>
         sys.error(s"Expected ${fParams.size} arguments for constructor, but got ${argRefs.size}")
       case Nil if argRefs.isEmpty =>
         val parentObjectsAndEnvs = for ((parentConstructor, args) <- parentConstructors) yield {
-          val (ref, newEnv) = parentConstructor.apply(args.map(_.asInstanceOf[Term.Name].symbol).map(env1.stack.head.apply), env1)
+          val (ref, newEnv) = parentConstructor
+            .apply(args.map(_.asInstanceOf[Term.Name].symbol).map(env1.stack.head.apply), env1)
           (newEnv.heap(ref).asInstanceOf[InterpreterObject], newEnv)
         }
         val (parentObjects, parentEnvs) = parentObjectsAndEnvs.unzip
-        val ref       = InterpreterJvmRef(null)
-        val obj       = InterpreterObject(className, env1.stack.head ++ parentObjects.flatMap(_.fields)) // FIXME: not really env1.stack, but only ctor args
-        val newStack = capturedEnv.stack
-        val newHeap = env1.heap + (ref -> obj) ++ parentEnvs.flatMap(_.heap)
-        val newThisContext = env1.thisContext + (className -> ref)
-        val (_, env2) = Engine.eval(body, Env(newStack, newHeap, env1.classTable, newThisContext))
-        val finalHeap   = callSiteEnv.heap ++ env2.heap
-        (ref, Env(callSiteEnv.stack, finalHeap, callSiteEnv.classTable, callSiteEnv.thisContext))
+        val ref                         = InterpreterJvmRef(null)
+        val obj                         = InterpreterObject(className, env1.stack.head ++ parentObjects.flatMap(_.fields)) // FIXME: not really env1.stack, but only ctor args
+        val newStack                    = capturedEnv.stack
+        val newHeap                     = env1.heap + (ref -> obj) ++ parentEnvs.flatMap(_.heap)
+        val newThisContext              = env1.thisContext + (className -> ref)
+        val (_, env2)                   = Engine.eval(body, Env(newStack, newHeap, env1.classTable, newThisContext))
+        val finalHeap                   = callSiteEnv.heap ++ env2.heap
+        (
+          ref,
+          Env(
+            callSiteEnv.stack,
+            finalHeap,
+            callSiteEnv.classTable,
+            callSiteEnv.thisContext
+          )
+        )
       case Nil =>
         sys.error(s"Did not expect any arguments for constructor, but got ${argRefs.size}")
     }

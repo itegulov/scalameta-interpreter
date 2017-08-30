@@ -4,8 +4,13 @@ import scala.collection.immutable.ListMap
 
 import scala.meta._
 
-case class Env(stack: FrameStack, heap: Heap, classTable: ClassTable, thisContext: ListMap[Symbol, InterpreterRef]) {
-  def extendHeap(otherHeap: Heap): Env = Env(stack, heap ++ otherHeap, classTable, thisContext)
+case class Env(
+  stack: List[Map[Symbol, InterpreterRef]],
+  heap: Map[InterpreterRef, InterpreterValue],
+  classTable: ClassTable, thisContext: ListMap[Symbol, InterpreterRef]
+) {
+  def extendHeap(otherHeap: Map[InterpreterRef, InterpreterValue]): Env =
+    Env(stack, heap ++ otherHeap, classTable, thisContext)
 
   def pushFrame(frame: Map[Symbol, InterpreterRef]): Env =
     Env(frame +: stack, heap, classTable, thisContext)

@@ -15,8 +15,7 @@ object ScalametaMirror {
   val AnyHashcode = Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Type("Any")), Signature.Method("hashCode", "()I"))
   val `Any==` = Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Type("Any")), Signature.Method("==", "(I)Z"))
   val `Any!=` = Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Type("Any")), Signature.Method("!=", "(I)Z"))
-  val StringInterpolationS = Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Type("StringContext")), Signature.Method("s", "(Lscala/collection/Seq;)Ljava/lang/String;"))
-
+  
   val emptySymbol = Symbol.Global(Symbol.None, Signature.Term("_empty_"))
   val A = Symbol.Global(emptySymbol, Signature.Type("A"))
   val B = Symbol.Global(emptySymbol, Signature.Type("B"))
@@ -63,7 +62,7 @@ object ScalametaMirror {
         // Predef
         case Term.Name("scala") => Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala"))
         case Term.Name("Predef") => Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Term("Predef"))
-        case Term.Name("s") => StringInterpolationS
+        case Term.Name("s") => Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Type("StringContext")), Signature.Method("s", "(Lscala/collection/Seq;)Ljava/lang/String;"))
         case Term.Name("q") => Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Term("meta")), Signature.Term("Defn")), Signature.Term("Object"))
         case Type.Name("StringContext") => Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Term("StringContext"))
         case Type.Name("Double") => Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Type("Double"))

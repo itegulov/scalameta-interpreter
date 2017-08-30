@@ -8,7 +8,6 @@ import org.scalameta.interpreter.ScalametaMirror
 import org.scalameta.interpreter.ScalametaMirror._
 import org.scalameta.interpreter.internal.flow.exceptions.{InterpreterException, ReturnException}
 
-import scala.annotation.tailrec
 import scala.collection.immutable.ListMap
 import scala.collection.mutable.ArrayBuffer
 import scala.meta._
