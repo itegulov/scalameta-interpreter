@@ -36,6 +36,7 @@ object Engine {
     env: Env
   )(implicit mirror: ScalametaMirror): (InterpreterRef, Env) =
     tree match {
+      case source: Source     => evalSource(source, env)
       case literal: Lit       => evalLiteral(literal, env)
       case definition: Defn   => evalDefn(definition, env)
       case declaration: Decl  => InterpreterRef.wrap((), env, t"Unit") // FIXME: interpret them
@@ -77,6 +78,20 @@ object Engine {
       case select: Term.Select               => evalSelect(select, env)
       case xml: Term.Xml                     => sys.error("XMLs are unsupported")
     }
+  
+  def evalSource(
+    source: Source,
+    env: Env
+  )(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
+    var resEnv = env
+    var resRef: InterpreterRef = InterpreterJvmRef(null)
+    for (stat <- source.stats) {
+      val (ref, newEnv) = eval(stat, resEnv)
+      resRef = ref
+      resEnv = newEnv
+    }
+    (resRef, resEnv)
+  }
 
   def evalDefn(
     definition: Defn,
