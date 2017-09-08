@@ -329,37 +329,9 @@ object Engine {
   def evalInterpolate(
     interpolate: Term.Interpolate,
     env: Env
-  )(implicit mirror: ScalametaMirror): (InterpreterRef, Env) =
-    interpolate.prefix.symbol match {
-      case ScalametaMirror.StringInterpolationS =>
-        var resEnv = env
-        val results = for (arg <- interpolate.args) yield {
-          val (res, newEnv) = eval(arg, resEnv)
-          resEnv = newEnv
-          res
-        }
-        val literalResults = for (part <- interpolate.parts) yield {
-          val (res, newEnv) = eval(part, resEnv)
-          resEnv = newEnv
-          res
-        }
-        val stringResults        = results.map(_.reify(resEnv)).map(_.toString)
-        val stringLiteralResults = literalResults.map(_.reify(resEnv)).map(_.toString)
-
-        @tailrec
-        def merge[T](x: List[T], y: List[T], acc: List[T]): List[T] =
-          (x, y) match {
-            case (Nil, Nil)           => acc
-            case (Nil, _)             => acc ++ y
-            case (_, Nil)             => acc ++ x
-            case (xh :: xs, yh :: ys) => merge(xs, ys, acc ++ Seq(xh, yh))
-          }
-
-        val result = merge(stringLiteralResults, stringResults, List.empty).mkString("")
-        InterpreterRef
-          .wrap(result, resEnv, t"String")
-      case _ => sys.error(s"Unknown interpolation prefix ${interpolate.prefix}")
-    }
+  )(implicit mirror: ScalametaMirror): (InterpreterRef, Env) = {
+    eval(q"new StringContext(..${interpolate.parts}).${interpolate.prefix}(..${interpolate.args})", env)
+  }
 
   def evalPartialFunction(
     partialFunction: Term.PartialFunction,
@@ -823,8 +795,20 @@ object Engine {
       }
     }
     resEnv.classTable.table.get(newTerm.init.tpe.symbol) match {
-      case Some(classInfo) => classInfo.constructor.applyRec(argRefs, resEnv)
-      case None            => sys.error(s"Unknown class ${newTerm.init.tpe}")
+      case Some(classInfo) =>
+        classInfo.constructor.applyRec(argRefs, resEnv)
+      case None =>
+        val m = ru.runtimeMirror(Engine.getClass.getClassLoader)
+        metaToReflect(newTerm.init.tpe.symbol, m) match {
+          case (_, module: ru.ModuleSymbol) =>
+            val moduleMirror = m.reflectModule(module)
+            val classMirror = m.reflectClass(moduleMirror.symbol.companion.asClass)
+            val constructor = classMirror.symbol.info.member(ru.termNames.CONSTRUCTOR).asMethod
+            val constructorMirror = classMirror.reflectConstructor(constructor)
+            val wrappedJvm = InterpreterWrappedJvm(constructorMirror.apply(argRefs.flatMap(_.map(_.reify(resEnv)))))
+            val jvmRef = InterpreterJvmRef(null)
+            (jvmRef, resEnv.extend(jvmRef, wrappedJvm))
+        }
     }
   }
 
@@ -950,7 +934,12 @@ object Engine {
                     val m        = ru.runtimeMirror(getClass.getClassLoader)
                     val im       = m.reflect(value)
                     val method   = im.symbol.typeSignature.member(ru.TermName(NameTransformer.encode(name.value)))
-                    val newValue = InterpreterWrappedJvm(im.reflectMethod(method.asMethod)(argValues: _*))
+                    val methodMirror = im.reflectMethod(method.asMethod)
+                    val newValue = if (method.asMethod.isVarargs) {
+                      InterpreterWrappedJvm(methodMirror(argValues))
+                    } else {
+                      InterpreterWrappedJvm(methodMirror(argValues: _*))
+                    }
                     val newRef   = InterpreterJvmRef(null)
                     (newRef, resEnv.extend(newRef, newValue))
                 }

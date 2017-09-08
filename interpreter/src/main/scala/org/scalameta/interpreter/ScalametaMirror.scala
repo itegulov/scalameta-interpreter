@@ -64,6 +64,8 @@ object ScalametaMirror {
         case Term.Name("scala") => Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala"))
         case Term.Name("Predef") => Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Term("Predef"))
         case Term.Name("s") => StringInterpolationS
+        case Term.Name("q") => Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Term("meta")), Signature.Term("Defn")), Signature.Term("Object"))
+        case Type.Name("StringContext") => Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Term("StringContext"))
         case Type.Name("Double") => Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Type("Double"))
         case Type.Name("Int") => Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Type("Int"))
         case Term.Name("println") => Symbol.Global(Symbol.Global(Symbol.Global(Symbol.Global(Symbol.None, Signature.Term("_root_")), Signature.Term("scala")), Signature.Term("Predef")), Signature.Method("println", "(Ljava/lang/Object;)V"))
