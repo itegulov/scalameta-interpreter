@@ -36,13 +36,10 @@ object Engine {
   )(implicit mirror: ScalametaMirror): (InterpreterRef, Env) =
     tree match {
       case source: Source     => evalSource(source, env)
-      case literal: Lit       => evalLiteral(literal, env)
       case definition: Defn   => evalDefn(definition, env)
       case declaration: Decl  => InterpreterRef.wrap((), env, t"Unit") // FIXME: interpret them
       case importTerm: Import => InterpreterRef.wrap((), env, t"Unit") // Imports are already resolved by semantic API
       case template: Template => evalTemplate(template, env)
-      case block: Term.Block  => evalBlock(block, env)
-      case name: Term.Name    => evalName(name, env)
       case term: Term         => evalTerm(term, env)
     }
 
@@ -57,6 +54,7 @@ object Engine {
       case applyType: Term.ApplyType         => ???
       case ascribe: Term.Ascribe             => evalAscribe(ascribe, env)
       case assignment: Term.Assign           => evalAssignment(assignment, env)
+      case block: Term.Block                 => evalBlock(block, env)
       case doTerm: Term.Do                   => evalDoWhile(doTerm, env)
       case eta: Term.Eta                     => evalEta(eta, env)
       case forTerm: Term.For                 => evalFor(forTerm, env)
@@ -64,7 +62,9 @@ object Engine {
       case function: Term.Function           => evalFunction(function, env)
       case ifTerm: Term.If                   => evalIf(ifTerm, env)
       case interpolate: Term.Interpolate     => evalInterpolate(interpolate, env)
+      case literal: Lit                      => evalLiteral(literal, env)
       case termMatch: Term.Match             => evalMatch(termMatch, env)
+      case name: Term.Name                   => evalName(name, env)
       case newTerm: Term.New                 => evalNew(newTerm, env)
       case function: Term.PartialFunction    => evalPartialFunction(function, env)
       case placeholder: Term.Placeholder     => ???
