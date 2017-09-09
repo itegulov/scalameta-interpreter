@@ -1,5 +1,6 @@
 package org.scalameta.interpreter.internal.environment
 
+import cats.data.State
 import org.scalameta.interpreter.ScalametaMirror
 import org.scalameta.interpreter.ScalametaMirror._
 import org.scalameta.interpreter.internal.Engine
@@ -42,6 +43,10 @@ sealed trait InterpreterRef {
       case false => false
       case other => sys.error(s"Tried to reify $other as a boolean")
     }
+  
+  def reifyPrimitive: State[Env, Any] = State.inspect(reifyPrimitive)
+  
+  def reifyBoolean: State[Env, Boolean] = State.inspect(reifyBoolean)
 
   def tpe: Type
 }

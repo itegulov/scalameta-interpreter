@@ -34,6 +34,8 @@ object ScalametaInterpreterBuild {
     .settings(commonSettings)
     .settings(
       libraryDependencies ++= Seq(
+        "org.typelevel" %% "cats-core" % "1.0.0-MF",
+        "org.typelevel" %% "cats-mtl-core" % "0.0.2",
         "org.scalameta" %% "scalameta" % "2.0.0-RC3"
       )
     )

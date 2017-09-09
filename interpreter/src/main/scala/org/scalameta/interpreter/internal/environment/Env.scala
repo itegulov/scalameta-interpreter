@@ -1,13 +1,14 @@
 package org.scalameta.interpreter.internal.environment
 
 import scala.collection.immutable.ListMap
-
 import scala.meta._
+import scala.util.{Failure, Success, Try}
 
 case class Env(
   stack: List[Map[Symbol, InterpreterRef]],
   heap: Map[InterpreterRef, InterpreterValue],
-  classTable: ClassTable, thisContext: ListMap[Symbol, InterpreterRef]
+  classTable: ClassTable,
+  thisContext: ListMap[Symbol, InterpreterRef]
 ) {
   def extendHeap(otherHeap: Map[InterpreterRef, InterpreterValue]): Env =
     Env(stack, heap ++ otherHeap, classTable, thisContext)
@@ -20,13 +21,48 @@ case class Env(
 
   def extend(sym: Symbol, ref: InterpreterRef): Env =
     stack.head.get(sym) match {
-      case Some(_) => Env((stack.head + (sym -> ref)) :: stack.tail, heap, classTable, thisContext)
-      case None    => Env((stack.head + (sym -> ref)) :: stack.tail, heap, classTable, thisContext)
+      case Some(_) =>
+        Env(
+          (stack.head + (sym -> ref)) :: stack.tail,
+          heap,
+          classTable,
+          thisContext
+        )
+      case None =>
+        Env(
+          (stack.head + (sym -> ref)) :: stack.tail,
+          heap,
+          classTable,
+          thisContext
+        )
     }
 
   def addClass(classSymbol: Symbol, classInfo: ClassInfo): Env =
-    Env(stack, heap, ClassTable(classTable.table + (classSymbol -> classInfo)), thisContext)
+    Env(
+      stack,
+      heap,
+      ClassTable(classTable.table + (classSymbol -> classInfo)),
+      thisContext
+    )
 
   def addThis(classSymbol: Symbol, interpreterRef: InterpreterRef): Env =
-    Env(stack, heap, classTable, thisContext + (classSymbol -> interpreterRef))
+    Env(
+      stack,
+      heap,
+      classTable,
+      thisContext + (classSymbol -> interpreterRef)
+    )
+
+  def getLocal(symbol: Symbol): Option[InterpreterRef] = {
+    val stackRef = stack.head.get(symbol)
+    stackRef.orElse(
+      thisContext.flatMap {
+        case (_, classRef) =>
+          Try(heap(classRef).asInstanceOf[InterpreterObject]) match {
+            case Success(obj) => obj.fields.get(symbol)
+            case Failure(_)   => sys.error("Illegal state")
+          }
+      }.headOption
+    )
+  }
 }
