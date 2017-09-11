@@ -4,6 +4,7 @@ import cats.data.State
 import org.scalameta.interpreter.ScalametaMirror
 import org.scalameta.interpreter.ScalametaMirror._
 import org.scalameta.interpreter.internal.Engine
+import org.scalameta.interpreter.internal.NewEngine._
 
 import scala.meta._
 
@@ -44,6 +45,12 @@ sealed trait InterpreterRef {
       case other => sys.error(s"Tried to reify $other as a boolean")
     }
   
+  def extract: State[Env, InterpreterValue] = State.inspect(extract)
+  
+  def reify: State[Env, Any] = State.inspect(reify)
+  
+  def reifyJvm: State[Env, Any] = State.inspect(reifyJvm)
+  
   def reifyPrimitive: State[Env, Any] = State.inspect(reifyPrimitive)
   
   def reifyBoolean: State[Env, Boolean] = State.inspect(reifyBoolean)
@@ -57,6 +64,11 @@ abstract class InterpreterFunctionRef extends InterpreterRef {
   def body: Term
   def capturedEnv: Env
   def invoke(argRefs: List[InterpreterRef], callSiteEnv: Env): (InterpreterRef, Env)
+  def invokeNew(argRefs: List[InterpreterRef]): IState = State {
+    env => 
+      val (ref, newEnv) = invoke(argRefs, env)
+      (newEnv, ref)
+  }
 }
 
 final case class InterpreterDefinedPrefunctionRef(
