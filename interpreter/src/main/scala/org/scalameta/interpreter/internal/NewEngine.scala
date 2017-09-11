@@ -1,5 +1,7 @@
 package org.scalameta.interpreter.internal
 
+import java.lang.reflect.InvocationTargetException
+
 import org.scalameta.interpreter.internal.environment._
 import org.scalameta.interpreter._
 import org.scalameta.interpreter.ScalametaMirror._
@@ -10,19 +12,26 @@ import cats.data._
 import cats.implicits._
 import cats.mtl._
 import cats.mtl.implicits._
+import org.scalameta.interpreter.internal.flow.exceptions.ReturnException
 
 import scala.reflect.NameTransformer
 import scala.reflect.runtime.{universe => ru}
+import scala.runtime.BoxesRunTime
+
+object NewEngine {
+  type EnvState[A] = State[Env, A]
+  type IState      = State[Env, InterpreterRef]
+
+  implicit val r = MonadState[EnvState, Env]
+}
 
 /**
  * @author Daniyar Itegulov
  */
 class NewEngine(implicit mirror: ScalametaMirror) {
-  type EnvState[A] = State[Env, A]
-  type IState      = State[Env, InterpreterRef]
+  import NewEngine._
 
-  implicit val r = MonadState[EnvState, Env]
-  val m          = ru.runtimeMirror(getClass.getClassLoader)
+  val m = ru.runtimeMirror(getClass.getClassLoader)
 
   import r._
 
@@ -38,9 +47,9 @@ class NewEngine(implicit mirror: ScalametaMirror) {
 
   def evalTerm(term: Term): IState =
     term match {
-      case apply: Term.Apply                 => ???
-      case Term.ApplyInfix(lhs, op, _, xs)   => ???
-      case Term.ApplyUnary(op, arg)          => ???
+      case apply: Term.Apply                 => evalApply(apply)
+      case Term.ApplyInfix(lhs, op, _, xs)   => evalApply(Term.Apply(Term.Select(lhs, op), xs))
+      case Term.ApplyUnary(op, arg)          => evalApply(Term.Apply(Term.Select(arg, op), List.empty))
       case applyType: Term.ApplyType         => ???
       case ascribe: Term.Ascribe             => ???
       case assignment: Term.Assign           => ???
@@ -67,6 +76,190 @@ class NewEngine(implicit mirror: ScalametaMirror) {
       case select: Term.Select               => ???
       case xml: Term.Xml                     => sys.error("XMLs are unsupported")
     }
+
+  def evalApplySelectJvm(value: Any, name: Term.Name, argRefs: List[InterpreterRef]): IState =
+    for {
+      argValues <- argRefs.map(_.reify).sequence[EnvState, Any]
+      result <- name.symbol match {
+                 case ScalametaMirror.AnyEquals =>
+                   argValues match {
+                     case Seq(arg) => wrap(value == arg, t"Boolean")
+                     case _        => sys.error(s"Expected one argument for equals(), but got $argValues")
+                   }
+                 case ScalametaMirror.AnyHashcode =>
+                   argValues match {
+                     case Seq() => wrap(value.hashCode(), t"Int")
+                     case _     => sys.error(s"Expected no arguments for hashCode, but got $argValues")
+                   }
+                 case ScalametaMirror.`Any==` =>
+                   argValues match {
+                     case Seq(arg) => wrap(value == arg, t"Boolean")
+                     case _        => sys.error(s"Expected one argument for ==, but got $argValues")
+                   }
+                 case ScalametaMirror.`Any!=` =>
+                   argValues match {
+                     case Seq(arg) => wrap(value != arg, t"Boolean")
+                     case _        => sys.error(s"Expected one argument for !=, but got $argValues")
+                   }
+                 case _ =>
+                   val runtimeName = toRuntimeName(name.value)
+                   val allFuns =
+                     classOf[BoxesRunTime].getDeclaredMethods.filter(_.getName == runtimeName)
+                   try {
+                     val fun = allFuns.head
+                     val result =
+                       fun.invoke(null, (value +: argValues).asInstanceOf[Seq[AnyRef]]: _*)
+                     val ref = InterpreterJvmRef(null)
+                     State[Env, InterpreterRef] { env =>
+                       (env.extend(ref, InterpreterPrimitive(result)), ref)
+                     }
+                   } catch {
+                     case _: InvocationTargetException | _: NoSuchElementException =>
+                       val m  = ru.runtimeMirror(getClass.getClassLoader)
+                       val im = m.reflect(value)
+                       val method = im.symbol.typeSignature
+                         .member(ru.TermName(NameTransformer.encode(name.value)))
+                       val methodMirror = im.reflectMethod(method.asMethod)
+                       val newValue = if (method.asMethod.isVarargs) {
+                         InterpreterWrappedJvm(methodMirror(argValues))
+                       } else {
+                         InterpreterWrappedJvm(methodMirror(argValues: _*))
+                       }
+                       val newRef = InterpreterJvmRef(null)
+                       State[Env, InterpreterRef] { env =>
+                         (env.extend(newRef, newValue), newRef)
+                       }
+                   }
+               }
+    } yield result
+
+  def evalApplySelectObject(
+    qualRef: InterpreterRef,
+    classSymbol: Symbol,
+    fields: Map[Symbol, InterpreterRef],
+    name: Term.Name,
+    argRefs: List[InterpreterRef]
+  ): IState =
+    fields.get(name.symbol) match {
+      case Some(fun: InterpreterFunctionRef) =>
+        try {
+          State { env =>
+            val (ref, newEnv) = fun.invoke(argRefs, env.addThis(classSymbol, qualRef))
+            (newEnv, ref)
+          }
+        } catch {
+          case ReturnException(retRef, retEnv) => State(_ => (retEnv, retRef))
+        }
+      case None => sys.error(s"Unknown field ${name.value} for object $classSymbol")
+    }
+
+  def evalApplySelect(qual: Term, name: Term.Name, argRefs: List[InterpreterRef]): IState =
+    for {
+      qualRef <- eval(qual)
+      qualVal <- qualRef.extract
+      result <- qualVal match {
+                 case InterpreterPrimitive(value) =>
+                   evalApplySelectJvm(value, name, argRefs)
+                 case InterpreterWrappedJvm(value) =>
+                   evalApplySelectJvm(value, name, argRefs)
+                 case InterpreterObject(classSymbol, fields) =>
+                   evalApplySelectObject(qualRef, classSymbol, fields, name, argRefs)
+               }
+    } yield result
+
+  def evalApplyName(name: Term.Name, argRefs: List[InterpreterRef]): IState =
+    for {
+      x <- State.inspect[Env, Option[InterpreterRef]](_.getLocal(name.symbol))
+      y <- x match {
+            case Some(funRef: InterpreterFunctionRef) =>
+              try {
+                funRef.invokeNew(argRefs)
+              } catch {
+                case ReturnException(retRef, retEnv) => State[Env, InterpreterRef](_ => (retEnv, retRef))
+              }
+            case Some(ref) =>
+              ref.extract.flatMap[InterpreterRef] {
+                case InterpreterPrimitive(value) =>
+                  sys.error(s"Expected function, but got $value")
+                case InterpreterObject(_, fields) =>
+                  fields.get(Term.Name("apply").symbol) match {
+                    case Some(funRef: InterpreterFunctionRef) =>
+                      try {
+                        funRef.invokeNew(argRefs)
+                      } catch {
+                        case ReturnException(retRef, retEnv) => State(_ => (retEnv, retRef))
+                      }
+                    case _ => sys.error(s"There is no method 'apply' for $ref")
+                  }
+                case InterpreterWrappedJvm(jvmValue) =>
+                  for {
+                    argValues <- argRefs.map(_.reify).sequence[EnvState, Any]
+                    im     = m.reflect(jvmValue)
+                    method = im.symbol.typeSignature.member(ru.TermName("apply"))
+                    newValue = InterpreterWrappedJvm(
+                      im.reflectMethod(method.asMethod)(argValues: _*)
+                    )
+                    newRef: InterpreterRef = InterpreterJvmRef(null)
+                    _ <- modify(_.extend(newRef, newValue))
+                  } yield newRef
+              }
+            case None =>
+              for {
+                argValues <- argRefs.map(_.reify).sequence[EnvState, Any]
+                result <- metaToReflect(name.symbol, m) match {
+                           case (owner: ru.ModuleSymbol, method: ru.MethodSymbol) =>
+                             val im                 = m.reflectModule(owner)
+                             val objScalametaMirror = m.reflect(im.instance)
+                             val ref                = InterpreterJvmRef(null)
+
+                             val res = if (method.isVarargs) {
+                               InterpreterWrappedJvm(
+                                 objScalametaMirror.reflectMethod(method)(argValues)
+                               )
+                             } else {
+                               InterpreterWrappedJvm(
+                                 objScalametaMirror.reflectMethod(method)(argValues: _*)
+                               )
+                             }
+                             for {
+                               _ <- modify(_.extend(ref, res))
+                             } yield ref
+                           case (_, module: ru.ModuleSymbol) =>
+                             val im                 = m.reflectModule(module)
+                             val objScalametaMirror = m.reflect(im.instance)
+                             val ref                = InterpreterJvmRef(null)
+
+                             val alternatives = im.symbol.info
+                               .member(ru.TermName("apply"))
+                               .asTerm
+                               .alternatives
+                               .map(_.asMethod)
+                             val method = alternatives.head
+                             val res = if (method.isVarargs) {
+                               InterpreterWrappedJvm(
+                                 objScalametaMirror.reflectMethod(method)(argValues)
+                               )
+                             } else {
+                               InterpreterWrappedJvm(
+                                 objScalametaMirror.reflectMethod(method)(argValues: _*)
+                               )
+                             }
+                             for {
+                               _ <- modify(_.extend(ref, res))
+                             } yield ref
+                         }
+              } yield result
+          }
+    } yield y
+
+  def evalApply(apply: Term.Apply): IState =
+    for {
+      argRefs <- apply.args.map(eval).sequence[EnvState, InterpreterRef]
+      result <- apply.fun match {
+                 case Term.Select(qual, name) => evalApplySelect(qual, name, argRefs)
+                 case name: Term.Name         => evalApplyName(name, argRefs)
+               }
+    } yield result
 
   def evalIf(ifTerm: Term.If): IState =
     for {
