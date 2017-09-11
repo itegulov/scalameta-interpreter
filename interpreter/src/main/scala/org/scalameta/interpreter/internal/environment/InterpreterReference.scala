@@ -165,6 +165,14 @@ final case class InterpreterCtorRef(
         val (constructorRef, newEnv) = apply(argRefs, callSiteEnv)
         constructorRef.asInstanceOf[InterpreterCtorRef].applyRec(tailRefs, newEnv)
     }
+  
+  def applyRec(argRefss: List[List[InterpreterRef]]): IState = {
+    State {
+      env =>
+        val (ref, newEnv) = applyRec(argRefss, env)
+        (newEnv, ref)
+    }
+  }
 
   def apply(argRefs: List[InterpreterRef], callSiteEnv: Env): (InterpreterRef, Env) = {
     val env1 = callSiteEnv.pushFrame(capturedEnv.stack.head)
